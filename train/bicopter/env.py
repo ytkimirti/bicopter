@@ -15,8 +15,8 @@ DT = SPEC["dt"]
 EPISODE_STEPS = 600
 
 # Target behaviours sampled per episode.
-JUMPS, SMOOTH, SMOOTH_JUMPS, HOLD = 0, 1, 2, 3
-MODE_PROBS = jnp.array([0.4, 0.3, 0.2, 0.1])
+JUMPS, SMOOTH, SMOOTH_JUMPS, HOLD, ORBIT = 0, 1, 2, 3, 4
+MODE_PROBS = jnp.array([0.35, 0.25, 0.15, 0.05, 0.2])
 
 
 class State(NamedTuple):
@@ -28,6 +28,7 @@ class State(NamedTuple):
     mode: jax.Array
     timer: jax.Array
     speed: jax.Array  # target wander speed scale
+    orbit: jax.Array  # (7,) Lissajous center x, y, amplitude x, y, frequency x, y, phase
     wind_mean: jax.Array
     gust: jax.Array
     t: jax.Array
@@ -64,7 +65,7 @@ def random_box_point(key, shrink=1.0):
 
 
 def reset(key, level=1.0) -> State:
-    k = jax.random.split(key, 15)
+    k = jax.random.split(key, 16)
     tumble = jax.random.uniform(k[0]) < 0.3
     th = jnp.where(tumble, jax.random.uniform(k[1], minval=-jnp.pi, maxval=jnp.pi), 0.3 * jax.random.normal(k[1]))
     om = jnp.where(tumble, 12.0 * jax.random.normal(k[2]), 2.0 * jax.random.normal(k[2]))
@@ -75,7 +76,17 @@ def reset(key, level=1.0) -> State:
         om=om,
         f=jax.random.uniform(k[5], (2,), maxval=SPEC["max_thrust"]),
     )
-    mode = jax.random.choice(k[6], 4, p=MODE_PROBS)
+    mode = jax.random.choice(k[6], 5, p=MODE_PROBS)
+    ko = jax.random.split(k[15], 7)
+    amp = jnp.stack([jax.random.uniform(ko[0], minval=1.0, maxval=HW - 2), jax.random.uniform(ko[1], minval=0.5, maxval=HH - 1.5)])
+    orbit = jnp.concatenate(
+        [
+            jax.random.uniform(ko[2], (2,), minval=-1.0, maxval=1.0) * (jnp.array([HW, HH]) - amp),
+            amp,
+            jax.random.uniform(ko[3], (2,), minval=0.3, maxval=1.8) * jnp.where(jax.random.uniform(ko[4]) < 0.5, 1.0, -1.0),
+            jax.random.uniform(ko[5], (1,), maxval=2 * jnp.pi),
+        ]
+    )
     wind_on = jax.random.uniform(k[7]) < DR["wind_prob"] * level
     ang = jax.random.uniform(k[8], maxval=2 * jnp.pi)
     mag = DR["wind_max"] * jnp.sqrt(jax.random.uniform(k[9])) * wind_on
@@ -88,6 +99,7 @@ def reset(key, level=1.0) -> State:
         mode=mode,
         timer=jax.random.randint(k[12], (), 40, 200),
         speed=jax.random.uniform(k[13], minval=0.5, maxval=8.0),
+        orbit=orbit,
         wind_mean=mag * jnp.stack([jnp.cos(ang), jnp.sin(ang)]),
         gust=jnp.zeros(2),
         t=jnp.int32(0),
@@ -113,6 +125,14 @@ def advance_target(s: State, key):
     lo = jnp.where(s.mode == SMOOTH_JUMPS, 60, 40)
     hi = jnp.where(s.mode == SMOOTH_JUMPS, 300, 200)
     timer = jnp.where(jump, jax.random.randint(k[2], (), lo, hi), timer)
+    # Lissajous orbit with exact velocity, like a circling or figure-eight cursor.
+    o = s.orbit
+    ph = (s.t + 1) * DT * o[4:6] + jnp.stack([o[6], 0.0])
+    op = o[0:2] + o[2:4] * jnp.sin(ph)
+    ov = o[2:4] * o[4:6] * jnp.cos(ph)
+    orb = s.mode == ORBIT
+    tp = jnp.where(orb, op, tp)
+    tv = jnp.where(orb, ov, tv)
     return tp, tv, timer
 
 

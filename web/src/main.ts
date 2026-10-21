@@ -625,7 +625,7 @@ function pointerWorld(e: PointerEvent): [number, number] {
 function hitFlyer(x: number, y: number): Flyer | null {
   const list = settings.mode === "fly" ? flyers : evolvers.slice(0, 1);
   let best: Flyer | null = null;
-  let bd = 0.7;
+  let bd = 0.8;
   for (const f of list) {
     const d = Math.hypot(f.drone.phys.x - x, f.drone.phys.y - y);
     if (d < bd) {

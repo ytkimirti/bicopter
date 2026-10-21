@@ -25,6 +25,8 @@ export const toWorld = (v: View, sx: number, sy: number): [number, number] => [(
 /** Half extents in meters of the area not covered by the panel. */
 export const extents = (v: View): [number, number] => [v.uw / 2 / v.ppm, v.h / 2 / v.ppm];
 
+export const DRONE_SCALE = 1.6;
+
 export interface Pose {
   x: number;
   y: number;
@@ -184,7 +186,8 @@ export function drawDrone(
 ) {
   const alpha = opts.alpha ?? 1;
   const [sx, sy] = toScreen(v, p.x, p.y);
-  const s = v.ppm;
+  // Drawn larger than life so it reads at arena scale; the physics has no collisions to disagree.
+  const s = v.ppm * DRONE_SCALE;
   const arm = SPEC.arm;
   const T = SPEC.max_thrust;
   ctx.save();
@@ -250,7 +253,7 @@ export function drawDrone(
     ctx.fillStyle = `rgb(${rgb})`;
     ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, monospace";
     ctx.textAlign = "center";
-    ctx.fillText(opts.label, sx, sy - 0.45 * s);
+    ctx.fillText(opts.label, sx, sy - 0.32 * s);
     ctx.restore();
   }
 }
