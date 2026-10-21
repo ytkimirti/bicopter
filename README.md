@@ -4,6 +4,23 @@ A 2D drone with two fixed, downward-pointing motors, flown by a neural network. 
 upside down to dive faster, shrugs off wind and heavier payloads, and recovers when you grab it and throw it.
 You can also evolve your own pilot from scratch in the browser, using every core.
 
+## Results
+
+`bun bench.ts` on the shipped brain (PPO, 120M steps, 45 min on 4 CPU cores) against a hand-tuned cascaded PD
+controller:
+
+| | PD | PPO |
+| --- | --- | --- |
+| Score on 24 jump courses (reward/step) | 0.405 | **0.526** |
+| Same, heavy + laggy + weak motor | 0.243 | **0.457** |
+| 6-11 m dive, time to settle | 2.58 s | **1.78 s** (flips over to thrust downward) |
+| Corner to corner | 3.48 s | **2.49 s** |
+| Recover from a spinning throw | 1.88 s | **1.69 s** |
+| Distance behind a circling target | 1.09 m | 1.09 m |
+| Hold position in 3 N gusty wind | 0.81 m | **0.52 m** |
+
+The in-browser evolution strategy passes the PD controller within a few minutes on a laptop.
+
 ## Layout
 
 | Path | What |

@@ -40,12 +40,14 @@ for p in checkpoints:
             "info": f"An early checkpoint from the same training run, after {fmt(b['steps'])} simulated steps.",
         }
     )
-best = json.loads((run / "brain_best.json").read_text())
-shutil.copy(run / "brain_best.json", dest / "ppo-best.json")
+# The final weights when the run completed, else the best checkpoint by training eval.
+main = run / "brain_final.json" if (run / "brain_final.json").exists() else run / "brain_best.json"
+best = json.loads(main.read_text())
+shutil.copy(main, dest / "ppo-best.json")
 entries.append(
     {
         "id": "ppo-best",
-        "label": f"PPO · {fmt(best['steps'])} steps (best)",
+        "label": f"PPO · {fmt(best['steps'])} steps",
         "file": "ppo-best.json",
         "steps": best["steps"],
         "info": (
