@@ -6,3 +6,4 @@ __pycache__/
 runs/
 *.pyc
 .vercel
+train/runs/

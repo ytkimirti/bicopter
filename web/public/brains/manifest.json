@@ -1,0 +1,40 @@
+{
+  "default": "ppo-best",
+  "brains": [
+    {
+      "id": "ppo-best",
+      "label": "PPO \u00b7 87M steps (best)",
+      "file": "ppo-best.json",
+      "steps": 86638592,
+      "info": "Trained with PPO on 87M simulated steps in 12 min on 4 CPU cores, with randomized mass, motors, lag, latency, wind and sensor noise, so it copes when you change them."
+    },
+    {
+      "id": "ppo-30M",
+      "label": "PPO \u00b7 30M steps",
+      "file": "ppo-30M.json",
+      "steps": 30015488,
+      "info": "An early checkpoint from the same training run, after 30M simulated steps."
+    },
+    {
+      "id": "ppo-10M",
+      "label": "PPO \u00b7 10M steps",
+      "file": "ppo-10M.json",
+      "steps": 10092544,
+      "info": "An early checkpoint from the same training run, after 10M simulated steps."
+    },
+    {
+      "id": "ppo-3M",
+      "label": "PPO \u00b7 3M steps",
+      "file": "ppo-3M.json",
+      "steps": 3014656,
+      "info": "An early checkpoint from the same training run, after 3M simulated steps."
+    },
+    {
+      "id": "ppo-1M",
+      "label": "PPO \u00b7 1M steps",
+      "file": "ppo-1M.json",
+      "steps": 1048576,
+      "info": "An early checkpoint from the same training run, after 1M simulated steps."
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "_doc": "Single source of truth for the bicopter physics, observation and domain randomization. Read by train/ (JAX) and web/ (TypeScript). Units: meters, kilograms, seconds, newtons, radians (counterclockwise positive, 0 = upright).",
+  "dt": 0.016666666666666666,
+  "substeps": 4,
+  "gravity": 9.81,
+  "mass": 1.0,
+  "inertia": 0.03,
+  "arm": 0.2,
+  "max_thrust": 17.1675,
+  "motor_tau": 0.03,
+  "drag_lin": 0.1,
+  "drag_quad": 0.04,
+  "ang_drag": 0.02,
+  "max_latency": 2,
+  "arena": { "half_w": 10.0, "half_h": 6.0, "escape_margin": 8.0 },
+  "obs": {
+    "pos_scale": 0.2,
+    "pos_clip": 4.0,
+    "fine_clip": 1.0,
+    "vel_scale": 0.2,
+    "vel_clip": 5.0,
+    "omega_scale": 0.1,
+    "omega_clip": 5.0,
+    "dim": 15
+  },
+  "dr": {
+    "mass": [0.75, 1.35],
+    "inertia": [0.8, 1.25],
+    "thrust_scale": [0.88, 1.08],
+    "motor_tau": [0.015, 0.06],
+    "wind_max": 3.0,
+    "wind_prob": 0.5,
+    "gust_std": 1.5,
+    "gust_tau": 0.6,
+    "pos_noise": 0.01,
+    "vel_noise": 0.03,
+    "angle_noise": 0.01,
+    "omega_noise": 0.05,
+    "target_vel_noise": 0.3
+  },
+  "reward": {
+    "track_scale": 2.0,
+    "precise_weight": 0.5,
+    "precise_radius": 0.3,
+    "omega_weight": 0.0002,
+    "action_rate_weight": 0.01,
+    "escape_penalty": 10.0
+  }
+}

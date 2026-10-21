@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>bicopter · a neural net flying a two-motor drone</title>
+    <meta name="description" content="A 2D drone with two fixed motors, flown by a neural network trained with reinforcement learning. Throw it, add wind, or evolve your own pilot in the browser." />
+    <meta name="theme-color" content="#06080e" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='5' y='14' width='22' height='4' rx='2' fill='%235ef0ff'/><rect x='3' y='10' width='6' height='3' fill='%23d9e2f2'/><rect x='23' y='10' width='6' height='3' fill='%23d9e2f2'/></svg>" />
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+
+    <header class="hud">
+      <h1>bicopter</h1>
+      <p id="hint">A neural net flying a drone with two fixed motors. Move your mouse. Grab the drone and throw it.</p>
+      <div id="stats"></div>
+    </header>
+
+    <nav class="tabs">
+      <button data-mode="fly" class="on">Fly</button>
+      <button data-mode="evolve">Evolve</button>
+    </nav>
+
+    <button id="panel-toggle" aria-label="Settings">☰</button>
+
+    <aside id="panel">
+      <section id="fly-panel">
+        <h2>Pilot</h2>
+        <select id="brain"></select>
+        <p class="sub" id="brain-info"></p>
+        <div class="row">
+          <span>Swarm</span>
+          <div class="seg" id="swarm">
+            <button data-n="1" class="on">1</button><button data-n="3">3</button><button data-n="7">7</button><button data-n="19">19</button>
+          </div>
+        </div>
+        <label class="check"><input type="checkbox" id="race" /> Race a classic PD controller</label>
+
+        <h2>Physics <span class="legend"><i></i> trained range</span></h2>
+        <div id="sliders"></div>
+        <label class="check"><input type="checkbox" id="gusts" /> Gusty wind</label>
+        <div class="btns">
+          <button id="kick" title="K">Kick</button>
+          <button id="reset-phys">Reset physics</button>
+        </div>
+
+        <h2>View</h2>
+        <label class="check"><input type="checkbox" id="v-plan" checked /> Show where it plans to go</label>
+        <label class="check"><input type="checkbox" id="v-trail" checked /> Trails</label>
+        <label class="check"><input type="checkbox" id="v-slow" /> Slow motion <kbd>S</kbd></label>
+        <label class="check"><input type="checkbox" id="v-net" checked /> Network activity</label>
+        <canvas id="net" width="248" height="120"></canvas>
+      </section>
+
+      <section id="evolve-panel" hidden>
+        <p class="sub">
+          Evolve your own pilot from scratch, right here in your browser. Each generation, 64 mutated copies of a small
+          network fly the same courses; the better ones pull the next generation toward them. Green is the current
+          brain, the faint ones are its mutants.
+        </p>
+        <canvas id="chart" width="248" height="130"></canvas>
+        <div id="evo-stats" class="mono"></div>
+        <div class="btns">
+          <button id="evo-run">Pause</button>
+          <button id="evo-reset">Start over</button>
+        </div>
+        <div class="btns"><button id="evo-fly" class="primary">Fly with this brain</button></div>
+      </section>
+
+      <footer>
+        <kbd>K</kbd> kick · <kbd>S</kbd> slow-mo · <kbd>A</kbd> autopilot
+      </footer>
+    </aside>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
