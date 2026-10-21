@@ -14,8 +14,9 @@ export interface View {
 /** insetRight: pixels covered by the side panel; the arena is centered in the rest. */
 export function makeView(w: number, h: number, dpr: number, insetRight = 0): View {
   const uw = w - insetRight;
-  // Fit the training arena, but on narrow screens zoom in so the drone stays readable (~12 m across).
-  const ppm = Math.max(Math.min(uw / (2 * (SPEC.arena.half_w + 1)), h / (2 * (SPEC.arena.half_h + 1))), Math.min(uw, h) / 12);
+  // Fit the training arena; on phones zoom in so the drone stays readable (~12 m across the short side).
+  const fit = Math.min(uw / (2 * (SPEC.arena.half_w + 1)), h / (2 * (SPEC.arena.half_h + 1)));
+  const ppm = uw < 720 ? Math.min(uw, h) / 12 : fit;
   return { w, h, dpr, ppm, cx: uw / 2, cy: h / 2, uw };
 }
 
@@ -261,8 +262,8 @@ export function drawDrone(
 export function drawOffscreen(ctx: CanvasRenderingContext2D, v: View, x: number, y: number, rgb: string) {
   const [sx, sy] = toScreen(v, x, y);
   const m = 18;
-  if (sx >= 0 && sx <= v.w && sy >= 0 && sy <= v.h) return;
-  const ax = Math.max(m, Math.min(v.w - m, sx));
+  if (sx >= 0 && sx <= v.uw && sy >= 0 && sy <= v.h) return;
+  const ax = Math.max(m, Math.min(v.uw - m, sx));
   const ay = Math.max(m, Math.min(v.h - m, sy));
   const ang = Math.atan2(sy - ay, sx - ax);
   ctx.save();

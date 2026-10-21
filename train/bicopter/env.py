@@ -90,12 +90,16 @@ def reset(key, level=1.0) -> State:
     wind_on = jax.random.uniform(k[7]) < DR["wind_prob"] * level
     ang = jax.random.uniform(k[8], maxval=2 * jnp.pi)
     mag = DR["wind_max"] * jnp.sqrt(jax.random.uniform(k[9])) * wind_on
+    # An orbit episode starts on its orbit, moving, rather than teleporting there on the first step.
+    orb = mode == ORBIT
+    target = jnp.where(orb, orbit[0:2] + orbit[2:4] * jnp.sin(jnp.stack([orbit[6], 0.0])), random_box_point(k[11]))
+    target_vel = jnp.where(orb, orbit[2:4] * orbit[4:6] * jnp.cos(jnp.stack([orbit[6], 0.0])), jnp.zeros(2))
     return State(
         phys=phys,
         params=sample_params(k[10], level),
         buf=jnp.zeros((2, 2)),
-        target=random_box_point(k[11]),
-        target_vel=jnp.zeros(2),
+        target=target,
+        target_vel=target_vel,
         mode=mode,
         timer=jax.random.randint(k[12], (), 40, 200),
         speed=jax.random.uniform(k[13], minval=0.5, maxval=8.0),

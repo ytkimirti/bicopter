@@ -18,39 +18,66 @@ function settleTime(d: Drone, tx: number, ty: number, maxT = 6, radius = 0.3, ho
   return { t: Infinity, maxTilt };
 }
 
+type Settle = { t: number; maxTilt: number };
+const mean = (xs: Settle[]): Settle => ({
+  t: xs.reduce((a, x) => a + x.t, 0) / xs.length,
+  maxTilt: Math.max(...xs.map((x) => x.maxTilt)),
+});
+
+/** Straight drops of 6 to 11 m. */
 function dive(b: Brain) {
-  const d = new Drone(b, 0, 5);
-  return settleTime(d, 0, -5);
+  return mean([6, 8, 10, 11].map((h) => settleTime(new Drone(b, 0, h / 2), 0, -h / 2)));
 }
 
+/** Corner to corner, both diagonals and directions. */
 function across(b: Brain) {
-  const d = new Drone(b, -8, -4);
-  return settleTime(d, 8, 4);
+  return mean(
+    [
+      [-8, -4, 8, 4],
+      [8, 4, -8, -4],
+      [-8, 4, 8, -4],
+      [8, -4, -8, 4],
+    ].map(([x0, y0, x1, y1]) => settleTime(new Drone(b, x0, y0), x1, y1)),
+  );
 }
 
+/** Thrown while spinning, at a range of angles and spin rates. */
 function recover(b: Brain) {
-  const d = new Drone(b, 0, 0);
-  d.phys.th = Math.PI * 0.95;
-  d.phys.om = 25;
-  d.phys.vx = 4;
-  return settleTime(d, 0, 0);
+  const runs: Settle[] = [];
+  for (const th of [Math.PI * 0.95, Math.PI / 2, -Math.PI * 0.7])
+    for (const om of [-25, 15, 30]) {
+      const d = new Drone(b, 0, 0);
+      d.phys.th = th;
+      d.phys.om = om;
+      d.phys.vx = 4;
+      runs.push(settleTime(d, 0, 0));
+    }
+  return mean(runs);
 }
 
+/** Mean distance while chasing circles of different radius and speed. */
 function track(b: Brain) {
-  const d = new Drone(b, 4, 0);
-  const w = 1.2;
-  const r = 4;
-  let sum = 0;
-  let n = 0;
-  for (let t = 0; t < 8 / DT; t++) {
-    const a = t * DT * w;
-    d.step(r * Math.cos(a), r * Math.sin(a), -r * w * Math.sin(a), r * w * Math.cos(a), 0, 0);
-    if (t * DT > 2) {
-      sum += Math.hypot(d.phys.x - r * Math.cos(a + w * DT), d.phys.y - r * Math.sin(a + w * DT));
-      n++;
+  let total = 0;
+  const cases = [
+    [4, 1.2],
+    [2, 2.0],
+    [6, 0.8],
+  ];
+  for (const [r, w] of cases) {
+    const d = new Drone(b, r, 0);
+    let sum = 0;
+    let n = 0;
+    for (let t = 0; t < 8 / DT; t++) {
+      const a = t * DT * w;
+      d.step(r * Math.cos(a), r * Math.sin(a), -r * w * Math.sin(a), r * w * Math.cos(a), 0, 0);
+      if (t * DT > 2) {
+        sum += Math.hypot(d.phys.x - r * Math.cos(a + w * DT), d.phys.y - r * Math.sin(a + w * DT));
+        n++;
+      }
     }
+    total += sum / n / cases.length;
   }
-  return sum / n;
+  return total;
 }
 
 function windHold(b: Brain) {
@@ -80,7 +107,7 @@ function robust(b: Brain) {
   return fitness(b, VAL, defaultES.steps, d);
 }
 
-const fmtT = (x: { t: number; maxTilt: number }) => `${Number.isFinite(x.t) ? x.t.toFixed(2) + "s" : "  fail"}${x.maxTilt > 2.1 ? "*" : " "}`;
+const fmtT = (x: Settle) => `${Number.isFinite(x.t) ? x.t.toFixed(2) + "s" : "  fail"}${x.maxTilt > 2.1 ? "*" : " "}`;
 
 const brains: Brain[] = [new PID()];
 for (const p of process.argv.slice(2)) brains.push(MLP.fromFile(p.split("/").pop()!.replace(".json", ""), (await Bun.file(p).json()) as BrainFile));
@@ -100,4 +127,6 @@ for (const b of brains) {
     windHold(b).toFixed(2).padStart(5),
   );
 }
-console.log("score/robust: mean reward per step on 24 fixed jump courses (robust = heavy, laggy, weak motor). * = flipped past 120°.");
+console.log("score/robust: mean reward per step on 24 fixed jump courses (robust = heavy, laggy, weak motor).");
+console.log("dive/across/recover: mean seconds to settle within 0.3 m (fail = any run never settled). * = flipped past 120°.");
+console.log("track: mean metres behind circling targets. wind: mean metres off target in 3 N wind with gusts.");

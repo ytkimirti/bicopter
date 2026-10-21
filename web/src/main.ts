@@ -134,6 +134,7 @@ async function rebuildFlyers() {
   // A newer selection may have finished first while this one was still fetching.
   if (id !== settings.brainId) return;
   const old = flyers.filter((f) => f.team === "nn");
+  const oldPd = flyers.filter((f) => f.team === "pd");
   const offs = formation(settings.swarm);
   // Racing teams fly side by side, each around its own copy of the target.
   const shift = settings.race ? (settings.swarm === 1 ? 0.8 : 1.6 + Math.sqrt(settings.swarm) * 0.6) : 0;
@@ -150,6 +151,7 @@ async function rebuildFlyers() {
       ...offs.map(([ox, oy], i) => {
         const f = makeFlyer(pd, ox + shift, oy, ORANGE, i === 0 ? "classic PD" : undefined);
         f.team = "pd";
+        if (oldPd[i]) adopt(f, oldPd[i]);
         f.ox = ox + shift;
         f.oy = oy;
         return f;
