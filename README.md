@@ -2,7 +2,7 @@
 
 A 2D drone with two fixed, downward-pointing motors, flown by a neural network. It chases your cursor, flips
 upside down to dive faster, shrugs off wind and heavier payloads, and recovers when you grab it and throw it.
-You can also evolve your own pilot from scratch in the browser, using every core.
+You can also evolve your own pilot from scratch in the browser, across your CPU cores.
 
 ## Results
 
@@ -19,8 +19,9 @@ controller:
 | Distance behind a circling target | 1.09 m | 1.09 m |
 | Hold position in 3 N gusty wind | 0.81 m | **0.52 m** |
 
-The in-browser evolution strategy reaches the PD controller's score within seconds on one core and then hovers
-around it; the app spreads it over every core. Gradient-based PPO with domain randomization stays well ahead.
+The in-browser evolution strategy reaches the PD controller's score in about 20 seconds on one core and then hovers
+around it; the app spreads it over all but one of your cores. Gradient-based PPO with domain randomization stays
+well ahead.
 
 ## Layout
 
@@ -39,7 +40,7 @@ flies the same in the browser.
 ```sh
 cd train
 uv sync
-uv run python train.py --steps 150e6 --out runs/main     # ~45k steps/s on 4 CPU cores
+uv run python train.py --steps 120e6 --out runs/main     # the shipped brain; ~45k steps/s on 4 CPU cores
 uv run python make_fixtures.py                          # after changing sim.py or the network export
 python3 publish.py runs/main                            # copy brains into web/public/brains
 ```

@@ -206,8 +206,12 @@ function autopilotActive() {
 
 function updateTarget() {
   const [ex, ey] = extents(view);
-  const ax = Math.min(ex - 1.2, SPEC.arena.half_w);
-  const ay = Math.min(ey - 1.2, SPEC.arena.half_h);
+  // Keep every formation slot, not just the center, inside the view.
+  const list = settings.mode === "fly" ? flyers : [];
+  const offX = list.reduce((m, f) => Math.max(m, Math.abs(f.ox)), 0);
+  const offY = list.reduce((m, f) => Math.max(m, Math.abs(f.oy)), 0);
+  const ax = Math.max(0.5, Math.min(ex - 1.2 - offX, SPEC.arena.half_w));
+  const ay = Math.max(0.5, Math.min(ey - 1.2 - offY, SPEC.arena.half_h));
   let x: number;
   let y: number;
   let vx = 0;

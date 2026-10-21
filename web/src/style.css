@@ -28,8 +28,9 @@ body {
 #c {
   position: fixed;
   inset: 0;
-  width: 100vw;
-  height: 100vh;
+  /* Not 100vh: mobile 100vh ignores visible toolbars and would stretch the canvas away from innerHeight. */
+  width: 100%;
+  height: 100%;
   display: block;
   touch-action: none;
   cursor: crosshair;

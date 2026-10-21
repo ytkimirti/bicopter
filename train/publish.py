@@ -14,9 +14,6 @@ dest = Path(__file__).resolve().parents[1] / "web" / "public" / "brains"
 main = run / "brain_final.json" if (run / "brain_final.json").exists() else run / "brain_best.json"
 if not main.exists():
     sys.exit(f"{run} has no brain_final.json or brain_best.json; nothing published")
-dest.mkdir(parents=True, exist_ok=True)
-for old in dest.glob("*.json"):
-    old.unlink()
 
 hours = ""
 log = run / "log.tsv"
@@ -31,10 +28,11 @@ def fmt(steps):
 
 entries = []
 checkpoints = sorted(run.glob("brain_*M.json"), key=lambda p: int(p.stem.split("_")[1][:-1]))
+files = {}  # output name -> source path; everything is parsed before anything is replaced
 for p in checkpoints:
     b = json.loads(p.read_text())
     sid = f"ppo-{p.stem.split('_')[1]}"
-    shutil.copy(p, dest / f"{sid}.json")
+    files[f"{sid}.json"] = p
     entries.append(
         {
             "id": sid,
@@ -45,7 +43,7 @@ for p in checkpoints:
         }
     )
 best = json.loads(main.read_text())
-shutil.copy(main, dest / "ppo-best.json")
+files["ppo-best.json"] = main
 entries.append(
     {
         "id": "ppo-best",
@@ -59,5 +57,10 @@ entries.append(
     }
 )
 entries.reverse()
+dest.mkdir(parents=True, exist_ok=True)
+for old in dest.glob("*.json"):
+    old.unlink()
+for name, src in files.items():
+    shutil.copy(src, dest / name)
 (dest / "manifest.json").write_text(json.dumps({"default": "ppo-best", "brains": entries}, indent=2))
 print(f"published {len(entries)} brains to {dest}")
