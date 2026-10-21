@@ -122,7 +122,8 @@ for (const b of brains) {
     "",
     fmtT(dive(b)).padEnd(7),
     fmtT(across(b)).padEnd(7),
-    fmtT(recover(b)).padEnd(8),
+    // Recovery starts past 120°, so its flip marker would always show.
+    fmtT({ ...recover(b), maxTilt: 0 }).padEnd(8),
     track(b).toFixed(2).padStart(5),
     windHold(b).toFixed(2).padStart(5),
   );

@@ -11,12 +11,15 @@ export interface View {
   uw: number; // usable width left of the panel
 }
 
+export const MIN_PPM = 28;
+
 /** insetRight: pixels covered by the side panel; the arena is centered in the rest. */
 export function makeView(w: number, h: number, dpr: number, insetRight = 0): View {
   const uw = w - insetRight;
-  // Fit the training arena; on phones zoom in so the drone stays readable (~12 m across the short side).
+  // Fit the training arena, but never below a readable scale: small screens show less arena instead of a
+  // speck of a drone. Continuous in the window size, so resizing never snaps the zoom.
   const fit = Math.min(uw / (2 * (SPEC.arena.half_w + 1)), h / (2 * (SPEC.arena.half_h + 1)));
-  const ppm = uw < 720 ? Math.min(uw, h) / 12 : fit;
+  const ppm = Math.max(fit, MIN_PPM);
   return { w, h, dpr, ppm, cx: uw / 2, cy: h / 2, uw };
 }
 

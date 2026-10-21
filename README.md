@@ -19,7 +19,8 @@ controller:
 | Distance behind a circling target | 1.09 m | 1.09 m |
 | Hold position in 3 N gusty wind | 0.81 m | **0.52 m** |
 
-The in-browser evolution strategy matches the PD controller after about a minute of evolving on one core and passes it after two; the app spreads it over every core.
+The in-browser evolution strategy reaches the PD controller's score within seconds on one core and then hovers
+around it; the app spreads it over every core. Gradient-based PPO with domain randomization stays well ahead.
 
 ## Layout
 

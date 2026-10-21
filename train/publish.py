@@ -10,6 +10,10 @@ from pathlib import Path
 
 run = Path(sys.argv[1])
 dest = Path(__file__).resolve().parents[1] / "web" / "public" / "brains"
+# The final weights when the run completed, else the best checkpoint by training eval.
+main = run / "brain_final.json" if (run / "brain_final.json").exists() else run / "brain_best.json"
+if not main.exists():
+    sys.exit(f"{run} has no brain_final.json or brain_best.json; nothing published")
 dest.mkdir(parents=True, exist_ok=True)
 for old in dest.glob("*.json"):
     old.unlink()
@@ -40,8 +44,6 @@ for p in checkpoints:
             "info": f"An early checkpoint from the same training run, after {fmt(b['steps'])} simulated steps.",
         }
     )
-# The final weights when the run completed, else the best checkpoint by training eval.
-main = run / "brain_final.json" if (run / "brain_final.json").exists() else run / "brain_best.json"
 best = json.loads(main.read_text())
 shutil.copy(main, dest / "ppo-best.json")
 entries.append(
