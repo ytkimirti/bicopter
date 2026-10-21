@@ -72,6 +72,7 @@ interface Flyer {
   unwrapped: number;
   lastTh: number;
   alpha: number;
+  team: "nn" | "pd";
 }
 
 const settings = {
@@ -101,7 +102,7 @@ const windParticles = Float32Array.from({ length: 240 }, () => Math.random());
 
 let flyers: Flyer[] = [];
 let evolvers: Flyer[] = [];
-const target = { x: 0, y: 0, vx: 0, vy: 0, px: 0, py: 0 };
+const target = { x: 0, y: 0, vx: 0, vy: 0, px: 0, py: 0, auto: true };
 const pointer = { x: 0, y: 0, lastMove: -1e9, down: false, touch: false };
 const gust = { x: 0, y: 0 };
 let simTime = 0;
@@ -111,7 +112,7 @@ const pose = (d: Drone): Pose => ({ x: d.phys.x, y: d.phys.y, th: d.phys.th, fl:
 
 function makeFlyer(brain: Brain, x: number, y: number, rgb: string, label?: string, alpha = 1): Flyer {
   const d = new Drone(brain, x, y);
-  return { drone: d, trail: new Trail(), rgb, label, prev: pose(d), ox: 0, oy: 0, unwrapped: 0, lastTh: 0, alpha };
+  return { drone: d, trail: new Trail(), rgb, label, prev: pose(d), ox: 0, oy: 0, unwrapped: 0, lastTh: 0, alpha, team: "nn" };
 }
 
 /** Hexagonal formation offsets so swarm members do not sit on top of each other. */
@@ -128,15 +129,17 @@ function formation(n: number): [number, number][] {
 }
 
 async function rebuildFlyers() {
-  const brain = await loadBrain(settings.brainId);
-  const old = flyers;
+  const id = settings.brainId;
+  const brain = await loadBrain(id);
+  // A newer selection may have finished first while this one was still fetching.
+  if (id !== settings.brainId) return;
+  const old = flyers.filter((f) => f.team === "nn");
   const offs = formation(settings.swarm);
   // Racing teams fly side by side, each around its own copy of the target.
   const shift = settings.race ? (settings.swarm === 1 ? 0.8 : 1.6 + Math.sqrt(settings.swarm) * 0.6) : 0;
   flyers = offs.map(([ox, oy], i) => {
-    const prev = old[i];
     const f = makeFlyer(brain, ox - shift, oy, CYAN);
-    if (prev) Object.assign(f.drone.phys, prev.drone.phys);
+    if (old[i]) adopt(f, old[i]);
     f.ox = ox - shift;
     f.oy = oy;
     return f;
@@ -146,6 +149,7 @@ async function rebuildFlyers() {
     flyers.push(
       ...offs.map(([ox, oy], i) => {
         const f = makeFlyer(pd, ox + shift, oy, ORANGE, i === 0 ? "classic PD" : undefined);
+        f.team = "pd";
         f.ox = ox + shift;
         f.oy = oy;
         return f;
@@ -153,6 +157,15 @@ async function rebuildFlyers() {
     );
   }
   applyPhysics();
+}
+
+/** Continue an existing drone's flight in a new flyer. */
+function adopt(f: Flyer, from: Flyer) {
+  Object.assign(f.drone.phys, from.drone.phys);
+  f.drone.past.set(from.drone.past);
+  f.prev = from.prev;
+  f.lastTh = from.lastTh;
+  f.unwrapped = from.unwrapped;
 }
 
 function applyPhysics() {
@@ -226,18 +239,27 @@ function updateTarget() {
     }
     target.vx = vx;
     target.vy = vy;
+    target.auto = true;
   } else {
     x = pointer.x;
     y = pointer.y;
-    // Smoothed pointer velocity, the way a target moving at constant speed looks in training.
-    const k = 0.25;
-    target.vx += k * ((x - target.px) / DT - target.vx);
-    target.vy += k * ((y - target.py) / DT - target.vy);
-    const sp = Math.hypot(target.vx, target.vy);
-    if (sp > 20) {
-      target.vx *= 20 / sp;
-      target.vy *= 20 / sp;
+    const ix = (x - target.px) / DT;
+    const iy = (y - target.py) / DT;
+    if (target.auto || Math.hypot(ix, iy) > 30) {
+      // A teleport (tap elsewhere, autopilot handoff) is a jump target in training terms: zero velocity.
+      target.vx = target.vy = 0;
+    } else {
+      // Smoothed pointer velocity, the way a target moving at constant speed looks in training.
+      const k = 0.25;
+      target.vx += k * (ix - target.vx);
+      target.vy += k * (iy - target.vy);
+      const sp = Math.hypot(target.vx, target.vy);
+      if (sp > 20) {
+        target.vx *= 20 / sp;
+        target.vy *= 20 / sp;
+      }
     }
+    target.auto = false;
   }
   target.px = x;
   target.py = y;
@@ -282,6 +304,7 @@ function stepFlyer(f: Flyer, windX: number, windY: number) {
     f.trail.clear();
     f.prev = pose(d);
     f.unwrapped = 0;
+    f.lastTh = 0;
   }
 }
 
@@ -322,8 +345,7 @@ function computePlan(f: Flyer) {
   ghost.brain = d.brain;
   ghost.params = d.params;
   Object.assign(ghost.phys, d.phys);
-  ghost.prev0.set(d.prev0);
-  ghost.prev1.set(d.prev1);
+  ghost.past.set(d.past);
   for (let k = 0; k < PLAN_N; k++) {
     ghost.step(target.x + f.ox, target.y + f.oy, target.vx, target.vy, settings.wind, 0);
     planX[k] = ghost.phys.x;
@@ -394,13 +416,18 @@ async function startEvolution(fresh: boolean) {
     pool.reset(seed, Float32Array.from(s.theta), s.gen);
     evo.gen = s.gen;
   }
+  resumeEvolution();
   const ppoId = manifest.default;
-  if (!brainFiles.has(ppoId)) await loadBrain(ppoId);
+  if (manifest.brains.some((b) => b.id === ppoId) && !brainFiles.has(ppoId)) await loadBrain(ppoId);
   pool.refs(brainFiles.get(ppoId) ?? null);
-  pool.start();
+}
+
+function resumeEvolution() {
+  evo.pool?.start();
   evo.running = true;
   evo.started = performance.now();
   evo.gens0 = evo.gen;
+  syncEvoButtons();
 }
 
 function registerEvolved(theta: number[] | Float32Array, gen: number) {
@@ -477,7 +504,9 @@ function setMode(mode: "fly" | "evolve") {
       ? `A neural net flying a drone with two fixed motors. ${coarse ? "Touch to steer" : "Move your mouse"}. Grab the drone and throw it.`
       : "Watch a pilot evolve from nothing. Every few seconds it gets a little less bad.";
   if (mode === "evolve") {
-    if (!evo.running) void startEvolution(false);
+    // Restore from storage only on first entry; afterwards the in-memory run simply continues.
+    if (!evo.pool) void startEvolution(false);
+    else if (!evo.running) resumeEvolution();
   } else if (evo.running) {
     evo.pool?.pause();
     evo.running = false;
@@ -556,12 +585,7 @@ function initUI() {
     if (evo.running) {
       evo.pool?.pause();
       evo.running = false;
-    } else {
-      evo.pool?.start();
-      evo.running = true;
-      evo.started = performance.now();
-      evo.gens0 = evo.gen;
-    }
+    } else resumeEvolution();
     syncEvoButtons();
   });
   $("evo-reset").addEventListener("click", () => {

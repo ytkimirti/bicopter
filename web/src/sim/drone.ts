@@ -1,15 +1,17 @@
 import { type Brain, type Ctx } from "./policy";
 import { nominalParams, observe, OBS_DIM, type Params, Phys, physicsStep } from "./physics";
 
+export const MAX_LATENCY = 8;
+
 /** A drone flown by a brain. Holds the action-latency buffer the training env uses. */
 export class Drone {
   phys = new Phys();
   params: Params = nominalParams();
   obs = new Float32Array(OBS_DIM);
   action = new Float32Array(2);
-  // a_{t-1} and a_{t-2}: the policy sees a_{t-1}; latency picks which command reaches the motors.
-  prev0 = new Float32Array(2);
-  prev1 = new Float32Array(2);
+  /** Past commands, newest first: [a_{t-1}, a_{t-2}, ...] as (L, R) pairs. The policy sees a_{t-1};
+   * latency k sends a_{t-k} to the motors, as hist[latency] does in train/bicopter/env.py. */
+  past = new Float32Array(2 * MAX_LATENCY);
   ctx: Ctx;
 
   constructor(
@@ -31,14 +33,15 @@ export class Drone {
     c.ty = ty;
     c.tvx = tvx;
     c.tvy = tvy;
-    observe(this.phys, tx, ty, tvx, tvy, this.prev0[0], this.prev0[1], this.obs);
+    const past = this.past;
+    observe(this.phys, tx, ty, tvx, tvy, past[0], past[1], this.obs);
     this.brain.act(this.obs, c, this.action);
-    const lat = this.params.latency;
-    const src = lat === 0 ? this.action : lat === 1 ? this.prev0 : this.prev1;
-    const cl = src[0];
-    const cr = src[1];
-    this.prev1.set(this.prev0);
-    this.prev0.set(this.action);
+    const lat = Math.max(0, Math.min(MAX_LATENCY, Math.round(this.params.latency)));
+    const cl = lat === 0 ? this.action[0] : past[2 * (lat - 1)];
+    const cr = lat === 0 ? this.action[1] : past[2 * (lat - 1) + 1];
+    past.copyWithin(2, 0, past.length - 2);
+    past[0] = this.action[0];
+    past[1] = this.action[1];
     physicsStep(this.phys, cl, cr, this.params, windX, windY);
   }
 
@@ -48,7 +51,6 @@ export class Drone {
     p.y = y;
     p.vx = p.vy = p.th = p.om = 0;
     p.fl = p.fr = (this.params.mass * 9.81) / 2;
-    this.prev0.fill(0);
-    this.prev1.fill(0);
+    this.past.fill(0);
   }
 }

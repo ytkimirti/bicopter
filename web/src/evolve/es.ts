@@ -81,8 +81,8 @@ export function fitness(net: Brain, scenarios: Scenario[], steps: number, drone 
       const j = Math.floor(t / JUMP);
       const tx = s.targets[2 * j];
       const ty = s.targets[2 * j + 1];
-      const pl = drone.prev0[0];
-      const pr = drone.prev0[1];
+      const pl = drone.past[0];
+      const pr = drone.past[1];
       drone.step(tx, ty, 0, 0, 0, 0);
       const p = drone.phys;
       if (!(Math.abs(p.x) < ESCAPE && Math.abs(p.y) < ESCAPE)) {
@@ -150,6 +150,8 @@ export class PairEvaluator {
 export class Evolution {
   theta: Float32Array;
   gen = 0;
+  /** Adam's own step count: a resumed run restarts its moments, so bias correction must restart too. */
+  private t = 0;
   private m: Float32Array;
   private v: Float32Array;
   private evaluator: PairEvaluator;
@@ -197,10 +199,11 @@ export class Evolution {
     }
     // Adam ascent with light weight decay.
     this.gen++;
+    this.t++;
     const b1 = 0.9;
     const b2 = 0.999;
-    const c1 = 1 - b1 ** this.gen;
-    const c2 = 1 - b2 ** this.gen;
+    const c1 = 1 - b1 ** this.t;
+    const c2 = 1 - b2 ** this.t;
     for (let k = 0; k < n; k++) {
       const gk = g[k] / (pop * sigma) - 0.005 * this.theta[k];
       this.m[k] = b1 * this.m[k] + (1 - b1) * gk;

@@ -124,12 +124,13 @@ class Trainer:
             s2, obs2, r, done, trunc = jax.vmap(env.step, in_axes=(0, 0, None))(s, a, level)
             # Time-limit truncation is not a real terminal: bootstrap through it.
             v_next = self.critic.apply(ts.params["critic"], obs2)
+            r_env = r
             r = r * cfg.reward_scale + cfg.gamma * v_next * trunc
             sr, obsr = pool_s, pool_obs
             sel = lambda x, y: jnp.where(done.reshape((-1,) + (1,) * (x.ndim - 1)), x, y)
             s2 = jax.tree.map(sel, sr, s2)
             obs2 = sel(obsr, obs2)
-            return (ts, s2, obs2, key), (Transition(obs, a, logp, v, r, done), r / cfg.reward_scale)
+            return (ts, s2, obs2, key), (Transition(obs, a, logp, v, r, done), r_env)
 
         (ts, env_state, obs, key), (traj, raw_r) = jax.lax.scan(
             env_step, (ts, env_state, obs, key), None, cfg.num_steps
