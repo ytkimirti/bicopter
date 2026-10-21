@@ -94,6 +94,7 @@ const settings = {
 
 const canvas = document.getElementById("c") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
+const coarse = matchMedia("(pointer: coarse)").matches;
 const panelInset = () => (innerWidth > 720 ? 300 : 0);
 let view: View = makeView(innerWidth, innerHeight, devicePixelRatio || 1, panelInset());
 const windParticles = Float32Array.from({ length: 240 }, () => Math.random());
@@ -130,21 +131,22 @@ async function rebuildFlyers() {
   const brain = await loadBrain(settings.brainId);
   const old = flyers;
   const offs = formation(settings.swarm);
+  // Racing teams fly side by side, each around its own copy of the target.
+  const shift = settings.race ? (settings.swarm === 1 ? 0.8 : 1.6 + Math.sqrt(settings.swarm) * 0.6) : 0;
   flyers = offs.map(([ox, oy], i) => {
     const prev = old[i];
-    const f = makeFlyer(brain, prev?.drone.phys.x ?? ox, prev?.drone.phys.y ?? oy, CYAN, settings.swarm === 1 ? undefined : undefined);
+    const f = makeFlyer(brain, ox - shift, oy, CYAN);
     if (prev) Object.assign(f.drone.phys, prev.drone.phys);
-    f.ox = ox;
+    f.ox = ox - shift;
     f.oy = oy;
     return f;
   });
   if (settings.race) {
-    for (const f of flyers) f.label = brain.name;
-    const offsR = formation(settings.swarm);
+    flyers[0].label = brain.name;
     flyers.push(
-      ...offsR.map(([ox, oy]) => {
-        const f = makeFlyer(pd, ox + 0.5, oy, ORANGE, "PD");
-        f.ox = ox;
+      ...offs.map(([ox, oy], i) => {
+        const f = makeFlyer(pd, ox + shift, oy, ORANGE, i === 0 ? "classic PD" : undefined);
+        f.ox = ox + shift;
         f.oy = oy;
         return f;
       }),
@@ -472,7 +474,7 @@ function setMode(mode: "fly" | "evolve") {
   $("evolve-panel").hidden = mode !== "evolve";
   $("hint").textContent =
     mode === "fly"
-      ? "A neural net flying a drone with two fixed motors. Move your mouse. Grab the drone and throw it."
+      ? `A neural net flying a drone with two fixed motors. ${coarse ? "Touch to steer" : "Move your mouse"}. Grab the drone and throw it.`
       : "Watch a pilot evolve from nothing. Every few seconds it gets a little less bad.";
   if (mode === "evolve") {
     if (!evo.running) void startEvolution(false);
@@ -620,7 +622,11 @@ canvas.addEventListener("pointerdown", (e) => {
   [pointer.x, pointer.y] = pointerWorld(e);
   pointer.down = true;
   pointer.lastMove = simTime;
-  canvas.setPointerCapture(e.pointerId);
+  try {
+    canvas.setPointerCapture(e.pointerId);
+  } catch {
+    // Synthetic events have no capturable pointer.
+  }
   const f = hitFlyer(pointer.x, pointer.y);
   if (f) {
     const p = f.drone.phys;
@@ -693,8 +699,8 @@ function frame(now: number) {
   const auto = autopilotActive();
   const tColor = settings.mode === "fly" ? "rgba(255,255,255,0.85)" : `rgba(${GREEN},0.85)`;
   drawTarget(ctx, view, target.x, target.y, t, tColor, auto);
-  if (settings.mode === "fly" && settings.swarm > 1)
-    for (const f of flyers.slice(1, settings.swarm)) {
+  if (settings.mode === "fly" && flyers.length > 1)
+    for (const f of flyers) {
       const [sx, sy] = [view.cx + (target.x + f.ox) * view.ppm, view.cy - (target.y + f.oy) * view.ppm];
       ctx.fillStyle = "rgba(255,255,255,0.18)";
       ctx.fillRect(sx - 1.5, sy - 1.5, 3, 3);
@@ -762,9 +768,12 @@ async function boot() {
     settings.brainId = "pd";
   }
   initUI();
+  setMode("fly");
   await rebuildFlyers();
   flyers[0]?.drone.reset(0, 0);
   requestAnimationFrame(frame);
+  // Handle for poking at the sim from the devtools console.
+  Object.assign(window, { bicopter: { get flyers() { return flyers; }, get view() { return view; }, settings, target } });
 }
 
 void boot();

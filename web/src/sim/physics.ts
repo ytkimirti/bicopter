@@ -106,9 +106,12 @@ export function reward(p: Phys, tx: number, ty: number, aL: number, aR: number, 
   const R = spec.reward;
   const d = Math.hypot(tx - p.x, ty - p.y);
   const r = d / R.precise_radius;
+  const n = d / R.near_radius;
+  const near = Math.exp(-n * n);
   return (
     R.track_scale / (R.track_scale + d) +
-    R.precise_weight * Math.exp(-r * r) -
+    R.precise_weight * Math.exp(-r * r) +
+    near * (R.upright_weight * Math.cos(p.th) - R.near_omega_weight * Math.min(p.om * p.om, 100)) -
     R.omega_weight * p.om * p.om -
     R.action_rate_weight * ((aL - prevL) ** 2 + (aR - prevR) ** 2)
   );

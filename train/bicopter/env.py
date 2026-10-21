@@ -143,9 +143,12 @@ def step(s: State, action, level=1.0):
         phys=phys, buf=hist[:2], target=target, target_vel=target_vel, timer=timer, gust=gust, t=s.t + 1, key=key
     )
     d = jnp.linalg.norm(target - phys.pos)
+    # Near the target: stay upright and stop spinning. Far away, flips are free.
+    near = jnp.exp(-((d / RW["near_radius"]) ** 2))
     r = (
         RW["track_scale"] / (RW["track_scale"] + d)
         + RW["precise_weight"] * jnp.exp(-((d / RW["precise_radius"]) ** 2))
+        + near * (RW["upright_weight"] * jnp.cos(phys.th) - RW["near_omega_weight"] * jnp.minimum(phys.om**2, 100.0))
         - RW["omega_weight"] * phys.om**2
         - RW["action_rate_weight"] * jnp.sum((a - s.buf[0]) ** 2)
     )

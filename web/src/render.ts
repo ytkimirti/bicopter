@@ -14,7 +14,8 @@ export interface View {
 /** insetRight: pixels covered by the side panel; the arena is centered in the rest. */
 export function makeView(w: number, h: number, dpr: number, insetRight = 0): View {
   const uw = w - insetRight;
-  const ppm = Math.min(uw / (2 * (SPEC.arena.half_w + 1)), h / (2 * (SPEC.arena.half_h + 1)));
+  // Fit the training arena, but on narrow screens zoom in so the drone stays readable (~12 m across).
+  const ppm = Math.max(Math.min(uw / (2 * (SPEC.arena.half_w + 1)), h / (2 * (SPEC.arena.half_h + 1))), Math.min(uw, h) / 12);
   return { w, h, dpr, ppm, cx: uw / 2, cy: h / 2, uw };
 }
 
