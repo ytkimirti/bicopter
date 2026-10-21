@@ -1,5 +1,6 @@
 """Write an actor network as JSON that web/src/sim/policy.ts loads."""
 
+import base64
 import json
 
 import numpy as np
@@ -18,8 +19,9 @@ def save_brain(actor_params, cfg, path, steps, evals=None):
             {
                 "in": int(w.shape[0]),
                 "out": int(w.shape[1]),
-                "w": [float(f"{x:.6g}") for x in w.reshape(-1)],
-                "b": [float(f"{x:.6g}") for x in b],
+                # Little-endian float32, base64: about half the size of decimal JSON, and exact.
+                "w": base64.b64encode(w.astype("<f4").tobytes()).decode(),
+                "b": base64.b64encode(b.astype("<f4").tobytes()).decode(),
             }
         )
     doc = {

@@ -7,7 +7,19 @@ export interface BrainFile {
   steps: number;
   hidden: number[];
   eval?: Record<string, number>;
-  layers: { in: number; out: number; w: number[]; b: number[] }[];
+  layers: { in: number; out: number; w: number[] | string; b: number[] | string }[];
+}
+
+/** Weights are base64 little-endian float32 (or plain arrays in older files). */
+function decode(x: number[] | string): Float32Array {
+  if (typeof x !== "string") return Float32Array.from(x);
+  const bin = atob(x);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const view = new DataView(bytes.buffer);
+  const out = new Float32Array(bytes.length / 4);
+  for (let i = 0; i < out.length; i++) out[i] = view.getFloat32(4 * i, true);
+  return out;
 }
 
 export interface Ctx {
@@ -51,7 +63,7 @@ export class MLP implements Brain {
     if (f.obs_dim !== OBS_DIM) throw new Error(`brain expects obs_dim ${f.obs_dim}, sim has ${OBS_DIM}`);
     return new MLP(
       name,
-      f.layers.map((l) => ({ nIn: l.in, nOut: l.out, w: Float32Array.from(l.w), b: Float32Array.from(l.b) })),
+      f.layers.map((l) => ({ nIn: l.in, nOut: l.out, w: decode(l.w), b: decode(l.b) })),
     );
   }
 

@@ -37,5 +37,5 @@ test("policy forward matches flax actor", () => {
     const y = net.forward(Float32Array.from(o));
     worst = Math.max(worst, Math.abs(y[0] - policy.out[i][0]), Math.abs(y[1] - policy.out[i][1]));
   });
-  expect(worst).toBeLessThan(1e-3);
+  expect(worst).toBeLessThan(1e-4);
 });
