@@ -4,7 +4,7 @@ Two hiders and two seekers fly the same drones as sim.py, each steered by the fr
 A shared high-level policy acts at 10 Hz: it gives the pilot a target (offset and velocity), adds a residual to the
 motor commands, and presses a grab toggle and a lock button. A toggle (rather than a hold-to-keep button) lets even a
 random policy carry a box for a while, and a lock button that cannot undo itself leaves locks in place; exploration
-needs both to find forts. Grabbing a box your team locked unlocks it. The arena is a closed box with a room on the floor whose side
+needs both to find forts. Only the key undoes a lock. The arena is a closed box with a room on the floor whose side
 walls have doors. Blocks are taller than the doors, so only blocks already inside can seal them. Any team can lock a
 free box in place; only the locking team can unlock it, except that a seeker carrying the key unlocks hider locks.
 
@@ -510,18 +510,16 @@ def grab_and_lock(s: State, grab, lock, frozen):
         clear = ~segment_blocked(
             jnp.broadcast_to(s.pos[i], (NB, 2)), jnp.stack([s.bpos[:, 0], top], -1), s.wc, s.wh
         )
-        # A box your own team locked can be grabbed too, which unlocks it: moving a fort piece takes a deliberate grab.
-        ok = under & clear & (held < 0) & ((locked < 0) | (locked == team))
+        ok = under & clear & (held < 0) & (locked < 0)
         dist = jnp.where(ok, jnp.abs(s.bpos[:, 0] - s.pos[i, 0]) + jnp.abs(top - bottom[i]), 1e9)
         bj = jnp.argmin(dist)
         do = can & ~was_holding & (grab[i] == 1) & ok[bj]
         grabs = grabs + jnp.where(do, jax.nn.one_hot(team, 2), 0.0)
-        locked = locked.at[bj].set(jnp.where(do, -1, locked[bj]))
         held = held.at[bj].set(jnp.where(do, i, held[bj]))
         holding = holding.at[i].set(jnp.where(do, bj, holding[i]))
-        # Lock button: locks the nearest loose box within reach of the drone or the box it carries. It never unlocks
-        # your own locks (so pressing it twice changes nothing), except that a seeker carrying the key unlocks hider
-        # locks with it, before locking anything.
+        # Lock button: locks the nearest loose box within reach of the drone or the box it carries. Locks are
+        # permanent, so a stray press never undoes a fort; the one exception is a seeker carrying the key, which
+        # unlocks hider locks with it before locking anything.
         dc, dh = drone_shapes(s._replace(holding=holding))
         d = gap(dc[i : i + 1], dh[i : i + 1], s.bpos, BOX_HALF)[0]
         free = held < 0
