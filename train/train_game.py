@@ -46,7 +46,7 @@ cfg = Config(
 tr = Trainer(cfg, args.seed)
 if args.resume:
     tr.ts, tr.update_i, done_decisions = load_checkpoint(args.resume, tr.ts)
-    tr.pool = [tr.host_params()["actor"]]
+    tr.pool = [tr.snapshot_params()]
 else:
     done_decisions = 0
 record = make_recorder(tr.actor, tr.pilot)

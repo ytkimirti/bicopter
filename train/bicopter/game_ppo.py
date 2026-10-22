@@ -147,7 +147,7 @@ class Trainer:
         )
         self._update = jax.pmap(self._update_fn, axis_name="d", in_axes=(0, 0, 0, 0, 0, None, None))
         self.update_i = 0
-        self.pool = [self.host_params()["actor"]]
+        self.pool = [self.snapshot_params()]
         self.pool_on = False
 
     def _update_fn(self, ts, env_state, obs, cobs, key, opp_actor, pool_on):
@@ -166,9 +166,11 @@ class Trainer:
             y = self.actor.apply(ts.params["actor"], obs)
             # Only the pool environments can have a past snapshot playing; skip its forward pass elsewhere.
             nm = self.n_main
-            y_old = self.actor.apply(opp_actor, obs[nm:])
+            y_old = self.actor.apply(opp_actor["actor"], obs[nm:])
             y_act = jnp.concatenate([y[:nm], jnp.where(opp_mask[nm:, :, None], y_old, y[nm:])])
-            cont, grab, lock = sample(ka, y_act, log_std)
+            # Past snapshots act with their own exploration noise.
+            std_act = jnp.where(opp_mask[..., None], opp_actor["log_std"], log_std)
+            cont, grab, lock = sample(ka, y_act, std_act)
             logp = log_prob(y, log_std, cont, grab, lock)
             v = self.critic.apply(ts.params["critic"], cobs)[..., 0]
             valid = jax.vmap(game.valid_mask)(s)
@@ -261,8 +263,12 @@ class Trainer:
         m = jax.tree.map(lambda x: np.asarray(x[0]), m)
         return m
 
+    def snapshot_params(self):
+        p = self.host_params()
+        return {"actor": p["actor"], "log_std": p["log_std"]}
+
     def snapshot(self):
-        self.pool.append(self.host_params()["actor"])
+        self.pool.append(self.snapshot_params())
         self.pool = self.pool[-64:]
         self.pool_on = True
 

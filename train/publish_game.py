@@ -5,6 +5,7 @@ python3 publish_game.py runs/hs1 [--max 24]
 
 import argparse
 import json
+import math
 import os
 import shutil
 from pathlib import Path
@@ -28,6 +29,8 @@ KEYS = ["hidden", "in_room", "sealed", "locked_prep", "unsealed", "key_unlocks",
 def smooth(xs, alpha=0.1):
     out, m = [], None
     for x in xs:
+        if not math.isfinite(x):  # a diverged update would otherwise poison the browser's JSON.parse
+            x = m if m is not None else 0.0
         m = x if m is None else m + alpha * (x - m)
         out.append(m)
     return out
@@ -80,7 +83,7 @@ for f in replays:
             "decisions": m["decisions"],
             "episodes_seen": int(sum(r["episodes"] for r in rows if r["update"] <= m["update"])),
             "hours": round(m["elapsed"] / 3600, 2),
-            "metrics": {k: round(m.get(k, 0.0), 3) for k in KEYS + ["r_hider"]},
+            "metrics": {k: round(v, 3) if math.isfinite(v := m.get(k, 0.0)) else 0.0 for k in KEYS + ["r_hider"]},
         }
     )
 (tmp / "manifest.json").write_text(json.dumps({"checkpoints": checkpoints, "stages": stages}, indent=1))

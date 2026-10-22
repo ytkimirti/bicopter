@@ -46,7 +46,7 @@ REACH = G["reach"]
 
 N_CONT = 6  # target offset (2), target velocity (2), motor residual (2)
 N_GRAB, N_LOCK = 2, 3  # release / hold; nothing / lock / unlock
-OBS_DIM = 12 + 3 * 7 + NB * 9 + 9
+OBS_DIM = 12 + 3 * 7 + NB * 10 + 9
 
 
 # ---------- pilot ----------
@@ -75,9 +75,9 @@ class Stats(NamedTuple):
     in_room: jax.Array  # hiders inside the room at the end of prep
     doors: jax.Array  # doors in this layout
     sealed: jax.Array  # doors blocked by a box at the end of prep
-    locked_prep: jax.Array  # boxes locked by hiders at the end of prep
+    locked_prep: jax.Array  # boxes in a doorway locked by hiders at the end of prep
     key_denied: jax.Array  # key locked by hiders or inside the room at the end of prep
-    unsealed: jax.Array  # doors sealed at prep end that seekers opened later
+    unsealed: jax.Array  # doors sealed at prep end that opened later with a seeker at the door
     key_unlocks: jax.Array  # hider locks opened by a seeker with the key
     grabs: jax.Array  # (2,) grabs per team
     locks: jax.Array  # (2,) locks per team
@@ -253,8 +253,8 @@ def gap(ca, ha, cb, hb):
     return jnp.linalg.norm(jnp.maximum(d, 0.0), axis=-1)
 
 
-def segment_blocked(p0, p1, bc, bh):
-    """Whether segments p0 -> p1 (..., 2) cross any of the AABBs (k, 2). Slab test."""
+def segment_hits(p0, p1, bc, bh):
+    """Which of the AABBs (k, 2) each segment p0 -> p1 (..., 2) crosses, shape (..., k). Slab test."""
     d = p1 - p0
     inv = 1.0 / jnp.where(jnp.abs(d) < 1e-6, 1e-6, d)
     lo = (bc - bh)[(None,) * (p0.ndim - 1)]
@@ -263,7 +263,11 @@ def segment_blocked(p0, p1, bc, bh):
     t2 = (hi - p0[..., None, :]) * inv[..., None, :]
     tmin = jnp.max(jnp.minimum(t1, t2), -1)
     tmax = jnp.min(jnp.maximum(t1, t2), -1)
-    return jnp.any((tmax >= tmin) & (tmax > 0.0) & (tmin < 1.0), -1)
+    return (tmax >= tmin) & (tmax > 0.0) & (tmin < 1.0)
+
+
+def segment_blocked(p0, p1, bc, bh):
+    return jnp.any(segment_hits(p0, p1, bc, bh), -1)
 
 
 def occluders(s: State):
@@ -281,11 +285,13 @@ def seen_matrix(s: State):
 
 
 def door_probes(s: State):
-    """Two segments through each door, from 1 m outside to 1 m inside, at shin and head height."""
+    """Two segments through each door at shin and head height, reaching one drone width past each wall face: a box
+    farther away leaves a gap a drone fits through."""
     x0, x1 = s.room[0], s.room[1]
     ys = FLOOR + jnp.array([0.25, DOOR_H - 0.2])
-    out = jnp.stack([jnp.full(2, x0 - WALL_T - 1.0), jnp.full(2, x1 + WALL_T + 1.0)])
-    inn = jnp.stack([jnp.full(2, x0 + 1.0), jnp.full(2, x1 - 1.0)])
+    m = 2 * DRONE_HALF[0]
+    out = jnp.stack([jnp.full(2, x0 - WALL_T - m), jnp.full(2, x1 + WALL_T + m)])
+    inn = jnp.stack([jnp.full(2, x0 + m), jnp.full(2, x1 - m)])
     p0 = jnp.stack([out, jnp.broadcast_to(ys, (2, 2))], -1)
     p1 = jnp.stack([inn, jnp.broadcast_to(ys, (2, 2))], -1)
     return p0, p1
@@ -295,6 +301,21 @@ def sealed_doors(s: State):
     p0, p1 = door_probes(s)
     blocked = segment_blocked(p0, p1, s.bpos, BOX_HALF)  # (2 doors, 2 probes)
     return s.doors & jnp.all(blocked, -1)
+
+
+def in_doorway(s: State):
+    """(NB,) boxes crossing a probe of an existing door."""
+    p0, p1 = door_probes(s)
+    hits = segment_hits(p0, p1, s.bpos, BOX_HALF)  # (2 doors, 2 probes, NB)
+    return jnp.any(hits & s.doors[:, None, None], (0, 1))
+
+
+def seekers_at_doors(s: State):
+    """(2 doors,) a seeker is within reach of the doorway, so a seal that breaks now was broken by them."""
+    door_x = jnp.stack([s.room[0] - WALL_T / 2, s.room[1] + WALL_T / 2])
+    near_x = jnp.abs(s.pos[2:, 0][None, :] - door_x[:, None]) < WALL_T / 2 + 2 * DRONE_HALF[0] + 0.8
+    near_y = s.pos[2:, 1][None, :] < FLOOR + DOOR_H + 1.0
+    return jnp.any(near_x & near_y, 1)
 
 
 def in_room(s: State, p):
@@ -450,7 +471,11 @@ def grab_and_lock(s: State, grab, lock, frozen):
         under = (jnp.abs(s.bpos[:, 0] - s.pos[i, 0]) < BOX_HALF[:, 0] + REACH) & (top < bottom[i] + 0.1) & (
             top > bottom[i] - REACH - 0.15
         )
-        ok = under & (held < 0) & (locked < 0)
+        # Not through a roof or platform: the line from the drone to the box top must be clear of walls.
+        clear = ~segment_blocked(
+            jnp.broadcast_to(s.pos[i], (NB, 2)), jnp.stack([s.bpos[:, 0], top], -1), s.wc, s.wh
+        )
+        ok = under & clear & (held < 0) & (locked < 0)
         dist = jnp.where(ok, jnp.abs(s.bpos[:, 0] - s.pos[i, 0]) + jnp.abs(top - bottom[i]), 1e9)
         bj = jnp.argmin(dist)
         do = can & (holding[i] < 0) & (grab[i] == 1) & ok[bj]
@@ -483,17 +508,28 @@ def grab_and_lock(s: State, grab, lock, frozen):
 
 
 def team_sees(s: State):
-    """(2 teams, 2 opponents): whether the team has line of sight to each opponent this decision."""
+    """What each team can see this decision: opponents (2 teams, 2) and boxes (2 teams, NB).
+
+    A box is visible to a team that carries it or has line of sight to its center (the box itself does not occlude).
+    Seekers are blind during prep."""
     m = seen_matrix(s)  # (seeker, hider)
     hider_seen = jnp.any(m, 0)
     seeker_seen = jnp.any(m, 1)
-    prep = s.t < PREP
-    # Seekers are blind during prep.
-    return jnp.stack([seeker_seen, hider_seen & ~prep])
+    oc, oh = occluders(s)
+    p0 = jnp.broadcast_to(s.pos[:, None, :], (ND, NB, 2))
+    p1 = jnp.broadcast_to(s.bpos[None], (ND, NB, 2))
+    hits = segment_hits(p0, p1, oc, oh)  # (ND, NB, NW + NB)
+    own = jnp.arange(NW + NB)[None, None, :] == NW + jnp.arange(NB)[None, :, None]
+    los = ~jnp.any(hits & ~own, -1)  # (ND, NB)
+    holder_team = jnp.where(s.held >= 0, s.held // 2, -1)
+    box_vis = jnp.stack([jnp.any(los[2 * t : 2 * t + 2], 0) | (holder_team == t) for t in range(2)])
+    awake = jnp.array([True, False]) | (s.t >= PREP)
+    return jnp.stack([seeker_seen, hider_seen]) & awake[:, None], box_vis & awake[:, None]
 
 
-def observe_all(s: State, vis):
-    """Per-agent observations (ND, OBS_DIM). vis (2 teams, 2 opponents) masks opponents; pass all-true for the critic."""
+def observe_all(s: State, vis, box_vis):
+    """Per-agent observations (ND, OBS_DIM). vis (2 teams, 2 opponents) and box_vis (2 teams, NB) mask what the
+    agent's team cannot see; pass all-true for the critic."""
     prep = (s.t < PREP).astype(jnp.float32)
     tf = s.t / EP_LEN
     sealed = sealed_doors(s)
@@ -533,17 +569,22 @@ def observe_all(s: State, vis):
         boxes = []
         for b in range(NB):
             h = s.held[b]
+            bv = box_vis[team, b]
             boxes += [
-                clip((s.bpos[b] - me) * 0.2),
-                clip(s.bvel[b] * 0.2, 5.0),
-                jnp.stack(
-                    [
-                        s.locked[b] == team,
-                        (s.locked[b] >= 0) & (s.locked[b] != team),
-                        h == i,
-                        h == mate,
-                        (h >= 0) & (TEAM[jnp.maximum(h, 0)] != team),
-                    ]
+                jnp.where(bv, clip((s.bpos[b] - me) * 0.2), 0.0),
+                jnp.where(bv, clip(s.bvel[b] * 0.2, 5.0), 0.0),
+                (
+                    bv
+                    & jnp.stack(
+                        [
+                            jnp.bool_(True),
+                            s.locked[b] == team,
+                            (s.locked[b] >= 0) & (s.locked[b] != team),
+                            h == i,
+                            h == mate,
+                            (h >= 0) & (TEAM[jnp.maximum(h, 0)] != team),
+                        ]
+                    )
                 ).astype(jnp.float32),
             ]
         r = s.room
@@ -561,8 +602,8 @@ def observe_all(s: State, vis):
 
 
 def observe_pair(s: State):
-    vis = team_sees(s)
-    return observe_all(s, vis), observe_all(s, jnp.ones((2, 2), bool))
+    vis, box_vis = team_sees(s)
+    return observe_all(s, vis, box_vis), observe_all(s, jnp.ones((2, 2), bool), jnp.ones((2, NB), bool))
 
 
 # ---------- step ----------
@@ -628,7 +669,7 @@ def step(s: State, pilot, cont, grab, lock, record=False):
     r_h = jnp.where(seek, jnp.where(any_seen, -1.0, 1.0), 0.0)
     reward = jnp.stack([r_h, r_h, -r_h, -r_h])
 
-    vis = team_sees(s)
+    vis, _ = team_sees(s)
     opp_pos = jnp.stack([s.pos[2:], s.pos[:2]])
     mem = jnp.where(vis[..., None], opp_pos, s.mem)
     since = jnp.minimum(jnp.where(vis, 0.0, s.since + DEC_DT), G["memory_s"])
@@ -644,9 +685,9 @@ def step(s: State, pilot, cont, grab, lock, record=False):
         in_room=jnp.where(at_prep_end, hiders_in, st.in_room),
         doors=jnp.sum(s.doors).astype(jnp.float32),
         sealed=jnp.where(at_prep_end, jnp.sum(sealed), st.sealed),
-        locked_prep=jnp.where(at_prep_end, jnp.sum(s.locked == 0), st.locked_prep),
+        locked_prep=jnp.where(at_prep_end, jnp.sum((s.locked == 0) & in_doorway(s)), st.locked_prep),
         key_denied=jnp.where(at_prep_end, key_denied, st.key_denied),
-        unsealed=st.unsealed + jnp.sum(s.seal0 & ~sealed & seek),
+        unsealed=st.unsealed + jnp.sum(s.seal0 & ~sealed & seek & seekers_at_doors(s)),
         flips=st.flips + jnp.sum(jnp.cos(s.th) < -0.5),
     )
     seal0 = jnp.where(at_prep_end, sealed, s.seal0 & sealed)
