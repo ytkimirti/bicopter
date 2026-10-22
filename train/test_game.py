@@ -33,8 +33,8 @@ def run(n=256, steps=game.EP_LEN, policy="random", seed=0):
             cont = jnp.zeros((n, game.ND, game.N_CONT))
         else:
             cont = jax.random.normal(k1, (n, game.ND, game.N_CONT)) * jnp.array([0.7, 0.7, 0.5, 0.5, 0.1, 0.1])
-        grab = jax.random.bernoulli(k2, 0.6, (n, game.ND)).astype(jnp.int32)
-        lock = jax.random.randint(k3, (n, game.ND), 0, 3)
+        grab = jax.random.bernoulli(k2, 0.1, (n, game.ND)).astype(jnp.int32)
+        lock = jax.random.bernoulli(k3, 0.1, (n, game.ND)).astype(jnp.int32)
         was_locked, prev_bpos = s.locked >= 0, s.bpos
         s, obs, cobs, r, done, st = step(s, pilot, cont, grab, lock)
         # A box locked before and after the step did not move.
@@ -54,7 +54,30 @@ def run(n=256, steps=game.EP_LEN, policy="random", seed=0):
     return s, st, worst
 
 
+def doorway_ram():
+    """A block taller than the door, shoved outward at the speed cap every step, stays inside and on the floor."""
+    n = 64
+    s, _, _ = reset(jax.random.split(jax.random.PRNGKey(3), n))
+    side = jnp.where(s.doors[:, 0], 0, 1)
+    hx, hy = game.BOX_HALF[0]
+    x = jnp.where(side == 0, s.room[:, 0] + hx + 0.01, s.room[:, 1] - hx - 0.01)
+    push = jnp.where(side == 0, -game.G["max_speed"], game.G["max_speed"])
+    s = s._replace(bpos=s.bpos.at[:, 0].set(jnp.stack([x, s.room[:, 2] + hy], -1)), locked=jnp.full_like(s.locked, -1))
+    cont = jnp.zeros((n, game.ND, game.N_CONT))
+    z = jnp.zeros((n, game.ND), jnp.int32)
+    worst_x, worst_y = 0.0, 0.0
+    for _ in range(30):
+        s = s._replace(bvel=s.bvel.at[:, 0].set(jnp.stack([push, jnp.zeros(n)], -1)))
+        s, *_ = step(s, pilot, cont, z, z)
+        out = jnp.where(side == 0, s.room[:, 0] - (s.bpos[:, 0, 0] - hx), (s.bpos[:, 0, 0] + hx) - s.room[:, 1])
+        worst_x = max(worst_x, float(out.max()))
+        worst_y = max(worst_y, float((s.room[:, 2] + hy - s.bpos[:, 0, 1]).max()))
+    print(f"doorway ram: block past the wall face {worst_x:.3f} m, sunk {worst_y:.3f} m")
+    assert worst_x < 0.02 and worst_y < 0.02, (worst_x, worst_y)
+
+
 def main():
+    doorway_ram()
     s, st, worst = run(policy="hover")
     sp = np.asarray(jnp.linalg.norm(s.vel, axis=-1))
     print(f"hover: max wall overlap {worst:.3f} m, final speed mean {sp.mean():.2f} m/s, tilt max {float(jnp.abs(s.th).max()):.2f}")

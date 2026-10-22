@@ -2,7 +2,8 @@
 
 Two hiders and two seekers fly the same drones as sim.py, each steered by the frozen PPO pilot from web/public/brains.
 A shared high-level policy acts at 10 Hz: it gives the pilot a target (offset and velocity), adds a residual to the
-motor commands, and holds a grabber and a lock button. The arena is a closed box with a room on the floor whose side
+motor commands, and presses a grab and a lock toggle. Toggles (rather than hold-to-keep buttons) let even a random
+policy carry a box for a while and leave a lock in place, which is what exploration needs to find forts. The arena is a closed box with a room on the floor whose side
 walls have doors. Blocks are taller than the doors, so only blocks already inside can seal them. Any team can lock a
 free box in place; only the locking team can unlock it, except that a seeker carrying the key unlocks hider locks.
 
@@ -45,7 +46,7 @@ WALL_T = G["wall_t"]
 REACH = G["reach"]
 
 N_CONT = 6  # target offset (2), target velocity (2), motor residual (2)
-N_GRAB, N_LOCK = 2, 3  # release / hold; nothing / lock / unlock
+N_GRAB, N_LOCK = 2, 2  # nothing / toggle grab; nothing / toggle lock
 OBS_DIM = 12 + 3 * 7 + NB * 10 + 9
 
 
@@ -181,6 +182,12 @@ def reset(key) -> State:
     bin_ = sample_inside(k[6], room, NB, bh[0])
     bout = sample_outside(k[7], room, NB)
     bpos = jnp.where(inside[:, None], jnp.stack([bin_[:, 0], room[2] + bh[:, 1]], -1), bout)
+    # In some episodes the first block starts just inside a door, so sealing is one short push away.
+    kd = jax.random.split(jax.random.fold_in(key, 11), 2)
+    side = jnp.where(doors[0] & doors[1], jax.random.bernoulli(kd[0]), doors[1]).astype(jnp.int32)
+    near = jnp.where(side == 0, room[0] + bh[0, 0] + 0.05, room[1] - bh[0, 0] - 0.05)
+    at_door = jax.random.uniform(kd[1]) < 0.3
+    bpos = bpos.at[0].set(jnp.where(at_door, jnp.stack([near, room[2] + bh[0, 1]]), bpos[0]))
     hover = SPEC["mass"] * GRAV / 2
     return State(
         pos=pos,
@@ -331,14 +338,22 @@ def in_room(s: State, p):
 # ---------- physics ----------
 
 
-def _pairs(cx, cy, hx, hy, ox, oy, gx, gy):
-    """Overlap of AABBs (n,) against (m,), as (n, m) arrays: normal from self to other, depth, overlap."""
+def _pairs(cx, cy, hx, hy, ox, oy, gx, gy, old=None):
+    """Overlap of AABBs (n,) against (m,), as (n, m) arrays: normal from self to other, depth, overlap.
+
+    With old (cx, cy) of the self bodies from before this step, the push-out axis is the one the body entered along
+    (the axis on which the pair did not overlap before), not merely the shallower one. Otherwise a tall block shoved
+    into a doorway would be pushed down through the floor by the wall above the door, rather than stopped."""
     dx = ox[None, :] - cx[:, None]
     dy = oy[None, :] - cy[:, None]
     px = hx[:, None] + gx[None, :] - jnp.abs(dx)
     py = hy[:, None] + gy[None, :] - jnp.abs(dy)
     over = (px > 0) & (py > 0)
     use_x = px < py
+    if old is not None:
+        was_x = hx[:, None] + gx[None, :] - jnp.abs(ox[None, :] - old[0][:, None]) > 0
+        was_y = hy[:, None] + gy[None, :] - jnp.abs(oy[None, :] - old[1][:, None]) > 0
+        use_x = jnp.where(was_y & ~was_x, True, jnp.where(was_x & ~was_y, False, use_x))
     nx = jnp.where(use_x, jnp.sign(dx) + (dx == 0), 0.0)
     ny = jnp.where(use_x, 0.0, jnp.sign(dy) + (dy == 0))
     depth = jnp.where(over, jnp.where(use_x, px, py), 0.0)
@@ -361,17 +376,21 @@ def _impulse(vx, vy, ox, oy, nx, ny, over, w_self, w_sum):
     return vx + dvx, vy + dvy
 
 
-def resolve(c, h, v, invm, active, wc, wh):
-    """One pass of contacts: dynamic AABBs against the static walls, then against each other."""
+def resolve(c, h, v, invm, active, wc, wh, c_old, bodies=True):
+    """One pass of contacts: dynamic AABBs against the static walls, then (if bodies) against each other.
+    c_old: centers before this step, to pick the axis each body hit a wall along."""
     cx, cy, hx, hy, vx, vy = c[:, 0], c[:, 1], h[:, 0], h[:, 1], v[:, 0], v[:, 1]
     act = active & (invm > 0)
-    nx, ny, depth, over = _pairs(cx, cy, hx, hy, wc[:, 0], wc[:, 1], wh[:, 0], wh[:, 1])
+    old = (c_old[:, 0], c_old[:, 1])
+    nx, ny, depth, over = _pairs(cx, cy, hx, hy, wc[:, 0], wc[:, 1], wh[:, 0], wh[:, 1], old)
     over = over & act[:, None]
     contact = jnp.any(over, 1)
     cx = cx - jnp.sum(nx * depth * over, 1)
     cy = cy - jnp.sum(ny * depth * over, 1)
     w = jnp.maximum(invm, 1e-6)[:, None]
     vx, vy = _impulse(vx, vy, 0.0, 0.0, nx, ny, over, w, w)
+    if not bodies:
+        return jnp.stack([cx, cy], -1), jnp.stack([vx, vy], -1), contact
 
     nx, ny, depth, over = _pairs(cx, cy, hx, hy, cx, cy, hx, hy)
     k = c.shape[0]
@@ -418,13 +437,15 @@ def fly(s: State, target_f, frozen):
     return s._replace(pos=pos, vel=vel, th=th, om=om, f=f, bpos=bpos, bvel=bvel)
 
 
-def collide(s: State, frozen):
-    """Contacts, once per control step. Speeds are capped so nothing crosses a wall in one step."""
+def collide(s: State, frozen, pos0, bpos0):
+    """Contacts, once per control step. Speeds are capped so nothing crosses a wall in one step.
+    pos0, bpos0: drone and box positions at the start of the step."""
     mass = SPEC["mass"] + pick(s.holding, BOX_MASS)
     free = (s.held < 0) & (s.locked < 0)
     dc, dh = drone_shapes(s)
     off = dc[:, 1] - s.pos[:, 1]
     c = jnp.concatenate([dc, s.bpos])
+    c_old = jnp.concatenate([pos0 + jnp.stack([jnp.zeros(ND), off], -1), bpos0])
     h = jnp.concatenate([dh, BOX_HALF])
     v = jnp.concatenate([s.vel, s.bvel])
     # Frozen seekers and locked boxes are immovable; carried boxes are part of their drone's shape.
@@ -432,8 +453,11 @@ def collide(s: State, frozen):
     active = jnp.concatenate([jnp.ones(ND, bool), s.held < 0])
     touched = jnp.zeros(ND + NB, bool)
     for _ in range(2):
-        c, v, contact = resolve(c, h, v, invm, active, s.wc, s.wh)
+        c, v, contact = resolve(c, h, v, invm, active, s.wc, s.wh, c_old)
         touched = touched | contact
+    # Walls get the last word: a body pushed by another body never ends the step inside a wall.
+    c, v, contact = resolve(c, h, v, invm, active, s.wc, s.wh, c_old, bodies=False)
+    touched = touched | contact
     vmax = G["max_speed"]
     sp = jnp.linalg.norm(v, axis=-1, keepdims=True)
     v = v * jnp.minimum(1.0, vmax / jnp.maximum(sp, 1e-6))
@@ -463,15 +487,16 @@ def grab_and_lock(s: State, grab, lock, frozen):
     for i in range(ND):
         team = i // 2
         can = ~frozen[i]
-        # Release: the box keeps the drone's velocity, so a release at speed is a throw.
-        rel = can & (holding[i] >= 0) & (grab[i] == 0)
+        # Grab toggle while holding releases; the box keeps the drone's velocity, so a release at speed is a throw.
+        was_holding = holding[i] >= 0
+        rel = can & was_holding & (grab[i] == 1)
         b = jnp.maximum(holding[i], 0)
         fast = jnp.linalg.norm(s.vel[i]) > 6.0
         throws = throws + (rel & fast)
         bvel = jnp.where(rel & (jnp.arange(NB) == b)[:, None], s.vel[i], bvel)
         held = jnp.where(rel & (jnp.arange(NB) == b), -1, held)
         holding = holding.at[i].set(jnp.where(rel, -1, holding[i]))
-        # Grab: a free, unlocked box just under the drone.
+        # Grab toggle while empty-handed picks up a free, unlocked box just under the drone.
         top = s.bpos[:, 1] + BOX_HALF[:, 1]
         under = (jnp.abs(s.bpos[:, 0] - s.pos[i, 0]) < BOX_HALF[:, 0] + REACH) & (top < bottom[i] + 0.1) & (
             top > bottom[i] - REACH - 0.15
@@ -483,27 +508,27 @@ def grab_and_lock(s: State, grab, lock, frozen):
         ok = under & clear & (held < 0) & (locked < 0)
         dist = jnp.where(ok, jnp.abs(s.bpos[:, 0] - s.pos[i, 0]) + jnp.abs(top - bottom[i]), 1e9)
         bj = jnp.argmin(dist)
-        do = can & (holding[i] < 0) & (grab[i] == 1) & ok[bj]
+        do = can & ~was_holding & (grab[i] == 1) & ok[bj]
         grabs = grabs + jnp.where(do, jax.nn.one_hot(team, 2), 0.0)
         held = held.at[bj].set(jnp.where(do, i, held[bj]))
         holding = holding.at[i].set(jnp.where(do, bj, holding[i]))
-        # Lock / unlock the nearest free box within reach of the drone or the box it carries.
+        # Lock toggle on the nearest free box within reach of the drone or the box it carries: locks an unlocked box,
+        # unlocks one this team locked, or, for a seeker carrying the key, one the hiders locked.
         dc, dh = drone_shapes(s._replace(holding=holding))
         d = gap(dc[i : i + 1], dh[i : i + 1], s.bpos, BOX_HALF)[0]
         free = held < 0
         has_key = holding[i] == KEY
-        lk = free & (locked < 0) & (d < REACH)
-        ul_own = free & (locked == team) & (d < REACH)
-        ul_key = free & (locked == 0) & (team == 1) & has_key & (d < REACH) & (jnp.arange(NB) != KEY)
-        ul = ul_own | ul_key
-        bl = jnp.argmin(jnp.where(lk, d, 1e9))
-        bu = jnp.argmin(jnp.where(ul, d, 1e9))
-        do_l = can & (lock[i] == 1) & lk[bl]
-        do_u = can & (lock[i] == 2) & ul[bu]
+        lk = free & (locked < 0)
+        ul_own = free & (locked == team)
+        ul_key = free & (locked == 0) & (team == 1) & has_key & (jnp.arange(NB) != KEY)
+        cand = (lk | ul_own | ul_key) & (d < REACH)
+        bt = jnp.argmin(jnp.where(cand, d, 1e9))
+        press = can & (lock[i] == 1) & cand[bt]
+        do_l = press & lk[bt]
+        do_u = press & ~lk[bt]
         locks = locks + jnp.where(do_l, jax.nn.one_hot(team, 2), 0.0)
-        key_unlocks = key_unlocks + (do_u & ~ul_own[bu])
-        locked = locked.at[bl].set(jnp.where(do_l, team, locked[bl]))
-        locked = locked.at[bu].set(jnp.where(do_u, -1, locked[bu]))
+        key_unlocks = key_unlocks + (do_u & ~ul_own[bt])
+        locked = locked.at[bt].set(jnp.where(do_l, team, jnp.where(do_u, -1, locked[bt])))
     bvel = jnp.where((locked >= 0)[:, None], 0.0, bvel)
     st = st._replace(grabs=grabs, locks=locks, throws=throws, key_unlocks=key_unlocks)
     return s._replace(holding=holding, held=held, locked=locked, bvel=bvel, stats=st)
@@ -632,8 +657,9 @@ def control_step(s: State, pilot, tgt, tv, residual, frozen):
     def sub(s, _):
         return fly(s, target_f, frozen), None
 
+    pos0, bpos0 = s.pos, s.bpos
     s, _ = jax.lax.scan(sub, s, None, length=SUB)
-    s = collide(s, frozen)
+    s = collide(s, frozen, pos0, bpos0)
     s = s._replace(th=jnp.mod(s.th + jnp.pi, 2 * jnp.pi) - jnp.pi, prev=jnp.where(frozen[:, None], s.prev, cmd))
     return s
 
@@ -711,10 +737,11 @@ def step(s: State, pilot, cont, grab, lock, record=False):
 def settle(s: State) -> State:
     """Push anything that spawned inside a wall or another body out of it, before anyone moves."""
     c = jnp.concatenate([s.pos, s.bpos])
+    c0 = c
     h = jnp.concatenate([jnp.broadcast_to(DRONE_HALF, (ND, 2)), BOX_HALF])
     v = jnp.zeros_like(c)
     for _ in range(6):
-        c, v, _ = resolve(c, h, v, jnp.ones(ND + NB), jnp.ones(ND + NB, bool), s.wc, s.wh)
+        c, v, _ = resolve(c, h, v, jnp.ones(ND + NB), jnp.ones(ND + NB, bool), s.wc, s.wh, c0)
     return s._replace(pos=c[:ND], bpos=c[ND:], spawn=c[2:ND])
 
 

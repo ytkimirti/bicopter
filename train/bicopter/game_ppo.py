@@ -32,7 +32,7 @@ class Config:
     lam: float = 0.95
     clip: float = 0.2
     vf_coef: float = 0.5
-    ent_coef: float = 0.01
+    ent_coef: float = 0.003
     max_grad_norm: float = 0.5
     reward_scale: float = 0.1
     actor_hidden: Sequence[int] = (256, 256)
@@ -115,8 +115,14 @@ class Trainer:
         key = jax.random.PRNGKey(seed)
         ka, kc, key = jax.random.split(key, 3)
         dummy = jnp.zeros((1, OBS_DIM))
+        actor = self.actor.init(ka, dummy)
+        # Toggles start rarely pressed (about 8%), so a grabbed box is carried and a lock stays put for a while.
+        last = sorted(actor["params"], key=lambda k: int(k.split("_")[1]))[-1]
+        bias = actor["params"][last]["bias"]
+        bias = bias.at[N_CONT + 1].set(-2.5).at[N_CONT + N_GRAB + 1].set(-2.5)
+        actor["params"][last]["bias"] = bias
         params = {
-            "actor": self.actor.init(ka, dummy),
+            "actor": actor,
             "critic": self.critic.init(kc, dummy),
             "log_std": jnp.array(cfg.init_log_std, jnp.float32),
         }
