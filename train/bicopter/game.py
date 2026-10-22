@@ -4,9 +4,9 @@ Two hiders and two seekers fly the same drones as sim.py, each steered by the fr
 A shared high-level policy acts at 10 Hz: it gives the pilot a target (offset and velocity), adds a residual to the
 motor commands, and presses a grab toggle and a lock button. A toggle (rather than a hold-to-keep button) lets even a
 random policy carry a box for a while, and a lock button that cannot undo itself leaves locks in place; exploration
-needs both to find forts. Only the key undoes a lock. The arena is a closed box with a room on the floor whose side
+needs both to find forts. The arena is a closed box with a room on the floor whose side
 walls have doors. Blocks are taller than the doors, so only blocks already inside can seal them. Any team can lock a
-free box in place; only the locking team can unlock it, except that a seeker carrying the key unlocks hider locks.
+free box in place, for good: locks never undo, except that a seeker carrying the key unlocks hider locks.
 
 Hiders get +1 per decision while no seeker has line of sight to any hider, -1 otherwise; seekers get the opposite.
 During the prep phase seekers are frozen and blind, and nobody is rewarded.
