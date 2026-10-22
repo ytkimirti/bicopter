@@ -116,7 +116,7 @@ class Trainer:
         ka, kc, key = jax.random.split(key, 3)
         dummy = jnp.zeros((1, OBS_DIM))
         actor = self.actor.init(ka, dummy)
-        # Toggles start rarely pressed (about 8%), so a grabbed box is carried and a lock stays put for a while.
+        # The grab toggle and lock button start rarely pressed (about 8%), so a grabbed box is carried for a while.
         last = sorted(actor["params"], key=lambda k: int(k.split("_")[1]))[-1]
         bias = actor["params"][last]["bias"]
         bias = bias.at[N_CONT + 1].set(-2.5).at[N_CONT + N_GRAB + 1].set(-2.5)
