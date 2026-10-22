@@ -32,7 +32,7 @@ class Config:
     lam: float = 0.95
     clip: float = 0.2
     vf_coef: float = 0.5
-    ent_coef: float = 0.003
+    ent_coef: float = 0.0  # an entropy bonus drags the rarely-pressed buttons toward 50% presses
     max_grad_norm: float = 0.5
     reward_scale: float = 0.1
     actor_hidden: Sequence[int] = (256, 256)
