@@ -100,6 +100,7 @@ body {
 }
 
 .tabs button,
+.tabs a,
 .seg button,
 .btns button,
 #panel-toggle {
@@ -112,7 +113,12 @@ body {
   cursor: pointer;
 }
 
+.tabs a {
+  text-decoration: none;
+}
+
 .tabs button.on,
+.tabs a.on,
 .seg button.on {
   color: var(--bg);
   background: var(--text);
@@ -278,7 +284,8 @@ select {
 }
 
 .btns button:hover,
-.tabs button:not(.on):hover {
+.tabs button:not(.on):hover,
+.tabs a:not(.on):hover {
   background: rgba(255, 255, 255, 0.09);
 }
 
@@ -294,7 +301,8 @@ select {
 }
 
 #net,
-#chart {
+#chart,
+#curves {
   display: block;
   width: 248px;
   margin: 8px 0 2px;
@@ -312,6 +320,78 @@ kbd {
   padding: 1px 4px;
   border: 1px solid var(--line);
   border-radius: 4px;
+  color: var(--dim);
+}
+
+#panel input[type="range"] {
+  width: 100%;
+  accent-color: var(--cyan);
+}
+
+.sub b {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.curve-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  margin: 2px 0 6px;
+  font: 10.5px var(--mono);
+  color: var(--dim);
+}
+
+.curve-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 3px;
+  margin-right: 4px;
+  border-radius: 2px;
+  vertical-align: middle;
+}
+
+.stages {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.stages button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  font: 11.5px var(--mono);
+  color: var(--dim);
+  text-align: left;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.stages button.reached {
+  color: var(--text);
+}
+
+.stages em {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  font: 600 9.5px/16px var(--mono);
+  font-style: normal;
+  text-align: center;
+  color: var(--bg);
+  background: rgba(255, 255, 255, 0.75);
+  border-radius: 50%;
+}
+
+.stages span {
+  flex: 1;
+}
+
+.stages small {
   color: var(--dim);
 }
 

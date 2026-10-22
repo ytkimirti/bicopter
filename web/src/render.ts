@@ -186,12 +186,12 @@ export function drawDrone(
   p: Pose,
   rgb: string,
   t: number,
-  opts: { alpha?: number; glow?: boolean; label?: string } = {},
+  opts: { alpha?: number; glow?: boolean; label?: string; scale?: number } = {},
 ) {
   const alpha = opts.alpha ?? 1;
   const [sx, sy] = toScreen(v, p.x, p.y);
-  // Drawn larger than life so it reads at arena scale; the physics has no collisions to disagree.
-  const s = v.ppm * DRONE_SCALE;
+  // Drawn larger than life so it reads at arena scale; free flight has no collisions to disagree.
+  const s = v.ppm * (opts.scale ?? DRONE_SCALE);
   const arm = SPEC.arm;
   const T = SPEC.max_thrust;
   ctx.save();

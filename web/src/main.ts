@@ -798,7 +798,7 @@ async function boot() {
     settings.brainId = "pd";
   }
   initUI();
-  setMode("fly");
+  setMode(new URLSearchParams(location.search).has("evolve") ? "evolve" : "fly");
   await rebuildFlyers();
   flyers[0]?.drone.reset(0, 0);
   requestAnimationFrame(frame);

@@ -1,0 +1,84 @@
+"""Invariant checks for the hide and seek env. uv run python test_game.py"""
+
+import time
+
+import jax
+import jax.numpy as jnp
+import numpy as np
+
+from bicopter import game
+
+pilot = game.load_pilot()
+step = jax.jit(jax.vmap(game.step, in_axes=(0, None, 0, 0, 0)))
+reset = jax.jit(jax.vmap(game.reset_obs))
+
+
+def overlap_depth(s):
+    """Deepest overlap of any free box or drone with a static wall, per env."""
+    dc, dh = jax.vmap(game.drone_shapes)(s)
+    n, d, _ = jax.vmap(game.mtv)(dc, dh, s.wc, s.wh)
+    _, db, _ = jax.vmap(game.mtv)(s.bpos, jnp.broadcast_to(game.BOX_HALF, s.bpos.shape), s.wc, s.wh)
+    free = (s.held < 0)[..., None]
+    return jnp.maximum(d.max((1, 2)), jnp.where(free, db, 0).max((1, 2)))
+
+
+def run(n=256, steps=game.EP_LEN, policy="random", seed=0):
+    key = jax.random.PRNGKey(seed)
+    s, obs, cobs = reset(jax.random.split(key, n))
+    assert obs.shape == (n, game.ND, game.OBS_DIM), obs.shape
+    worst = 0.0
+    for t in range(steps):
+        key, k1, k2, k3 = jax.random.split(key, 4)
+        if policy == "hover":
+            cont = jnp.zeros((n, game.ND, game.N_CONT))
+        else:
+            cont = jax.random.normal(k1, (n, game.ND, game.N_CONT)) * jnp.array([0.7, 0.7, 0.5, 0.5, 0.1, 0.1])
+        grab = jax.random.bernoulli(k2, 0.6, (n, game.ND)).astype(jnp.int32)
+        lock = jax.random.randint(k3, (n, game.ND), 0, 3)
+        was_locked, prev_bpos = s.locked >= 0, s.bpos
+        s, obs, cobs, r, done, st = step(s, pilot, cont, grab, lock)
+        # A box locked before and after the step did not move.
+        keep = (was_locked & (s.locked >= 0))[..., None]
+        moved = float(jnp.where(keep, jnp.abs(s.bpos - prev_bpos), 0.0).max())
+        assert moved < 1e-5, f"locked box moved {moved} at {t}"
+        if t > 3:
+            worst = max(worst, float(overlap_depth(s).max()))
+        assert bool(jnp.isfinite(obs).all()), f"non-finite obs at {t}"
+        assert bool(jnp.isfinite(s.pos).all()) and bool(jnp.isfinite(s.bpos).all())
+        inside = (jnp.abs(s.pos[..., 0]) < game.HW + 0.01) & (jnp.abs(s.pos[..., 1]) < game.HH + 0.01)
+        assert bool(inside.all()), f"drone left the arena at {t}"
+        binside = (jnp.abs(s.bpos[..., 0]) < game.HW + 0.01) & (jnp.abs(s.bpos[..., 1]) < game.HH + 0.01)
+        assert bool(binside.all()), f"box left the arena at {t}"
+        held_ok = jnp.all(jnp.where(s.holding >= 0, jnp.take_along_axis(s.held, jnp.maximum(s.holding, 0), 1) == jnp.arange(game.ND), True))
+        assert bool(held_ok), "holding/held disagree"
+    return s, st, worst
+
+
+def main():
+    s, st, worst = run(policy="hover")
+    sp = np.asarray(jnp.linalg.norm(s.vel, axis=-1))
+    print(f"hover: max wall overlap {worst:.3f} m, final speed mean {sp.mean():.2f} m/s, tilt max {float(jnp.abs(s.th).max()):.2f}")
+    s, st, worst = run(policy="random")
+    print(f"random: max wall overlap {worst:.3f} m")
+    print("stats (random):", {k: float(np.asarray(v).mean()) for k, v in st._asdict().items() if np.asarray(v).ndim == 1})
+    print("grabs", np.asarray(st.grabs).mean(0), "locks", np.asarray(st.locks).mean(0))
+    assert worst < 0.12, worst
+
+    # Throughput of the bare env.
+    n = 512
+    s, obs, cobs = reset(jax.random.split(jax.random.PRNGKey(1), n))
+    cont = jnp.zeros((n, game.ND, game.N_CONT))
+    z = jnp.zeros((n, game.ND), jnp.int32)
+    out = step(s, pilot, cont, z, z)
+    jax.block_until_ready(out[1])
+    t0 = time.time()
+    for _ in range(20):
+        s, *_ = step(s, pilot, cont, z, z)
+    jax.block_until_ready(s.pos)
+    dt = time.time() - t0
+    print(f"env: {20 * n / dt:.0f} decisions/s ({20 * n * game.REPEAT / dt:.0f} physics steps/s) on one device")
+    print("ok")
+
+
+if __name__ == "__main__":
+    main()

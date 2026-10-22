@@ -64,5 +64,44 @@
     "omega_weight": 0.0002,
     "action_rate_weight": 0.01,
     "escape_penalty": 10.0
+  },
+  "game": {
+    "_doc": "Hide and seek arena (train/bicopter/game.py). Drones and boxes collide as axis-aligned boxes; the room sits on the floor with doors in its side walls.",
+    "decision_repeat": 6,
+    "prep_s": 6.0,
+    "seek_s": 10.0,
+    "drone_half": [
+      0.25,
+      0.12
+    ],
+    "block_half": [
+      0.3,
+      0.65
+    ],
+    "block_mass": 0.35,
+    "key_half": [
+      0.2,
+      0.2
+    ],
+    "key_mass": 0.2,
+    "wall_t": 0.3,
+    "room_w": [
+      4.0,
+      6.0
+    ],
+    "room_h": [
+      2.2,
+      3.0
+    ],
+    "door_h": 1.1,
+    "hold_gap": 0.02,
+    "reach": 0.2,
+    "max_speed": 10.0,
+    "restitution": 0.2,
+    "friction": 0.5,
+    "offset_scale": 3.0,
+    "target_vel_scale": 5.0,
+    "residual_scale": 2.0,
+    "memory_s": 10.0
   }
 }

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>bicopter · hide and seek</title>
+    <meta name="description" content="Bicopter drones playing hide and seek, trained by self-play. Watch the strategies appear over training." />
+    <meta name="theme-color" content="#06080e" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='5' y='14' width='22' height='4' rx='2' fill='%235ef0ff'/><rect x='3' y='10' width='6' height='3' fill='%23d9e2f2'/><rect x='23' y='10' width='6' height='3' fill='%23d9e2f2'/></svg>" />
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+
+    <header class="hud">
+      <h1>hide &amp; seek</h1>
+      <p id="hint">
+        Two hiders (blue) and two seekers (orange), each flown by the same PPO pilot. One network plays both sides
+        and learned everything here by playing against itself.
+      </p>
+      <div id="stats"></div>
+    </header>
+
+    <nav class="tabs">
+      <a href="/">Fly</a>
+      <a href="/?evolve">Evolve</a>
+      <a class="on" href="/hideseek.html">Hide &amp; seek</a>
+    </nav>
+
+    <button id="panel-toggle" aria-label="Settings">☰</button>
+
+    <aside id="panel">
+      <section>
+        <h2>Training <span class="legend" id="ckpt-when"></span></h2>
+        <canvas id="curves" width="248" height="150"></canvas>
+        <div id="curve-legend" class="curve-legend"></div>
+        <input type="range" id="ckpt" min="0" max="0" value="0" step="1" />
+        <p class="sub" id="ckpt-info"></p>
+        <div id="stages" class="stages"></div>
+
+        <h2>Match</h2>
+        <div class="row">
+          <span>Episode</span>
+          <div class="seg" id="episodes"></div>
+        </div>
+        <div class="row">
+          <span>Speed</span>
+          <div class="seg" id="speed">
+            <button data-s="0.25">¼×</button><button data-s="0.5">½×</button><button data-s="1" class="on">1×</button><button data-s="2">2×</button>
+          </div>
+        </div>
+        <input type="range" id="scrub" min="0" max="1" value="0" step="1" />
+        <div class="btns">
+          <button id="play">Pause</button>
+          <button id="restart">Restart</button>
+        </div>
+
+        <h2>View</h2>
+        <label class="check"><input type="checkbox" id="v-sight" checked /> Lines of sight</label>
+        <label class="check"><input type="checkbox" id="v-trail" checked /> Trails</label>
+        <label class="check"><input type="checkbox" id="v-auto" checked /> Next episode when one ends</label>
+      </section>
+
+      <footer><kbd>Space</kbd> pause · <kbd>←</kbd> <kbd>→</kbd> checkpoint · <kbd>R</kbd> restart</footer>
+    </aside>
+
+    <script type="module" src="/src/hideseek.ts"></script>
+  </body>
+</html>
