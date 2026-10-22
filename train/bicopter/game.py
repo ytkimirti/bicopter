@@ -526,10 +526,10 @@ def grab_and_lock(s: State, grab, lock, frozen):
         ul_own = free & (locked == team)
         ul_key = free & (locked == 0) & (team == 1) & has_key & (jnp.arange(NB) != KEY)
         cand = (lk | ul_own | ul_key) & (d < REACH)
-        # Prefer locking: pressing next to your own locked seal and a loose box locks the loose one.
-        bt = jnp.where(
-            jnp.any(lk & cand), jnp.argmin(jnp.where(lk & cand, d, 1e9)), jnp.argmin(jnp.where(cand, d, 1e9))
-        )
+        # Priority: a seeker's key unlocks hider locks first, then loose boxes get locked, then own locks get
+        # unlocked, so pressing next to your own locked seal and a loose box locks the loose one.
+        rank = jnp.where(ul_key, 0.0, jnp.where(lk, 1.0, 2.0))
+        bt = jnp.argmin(jnp.where(cand, d + 1e3 * rank, 1e9))
         press = can & (lock[i] == 1) & cand[bt]
         do_l = press & lk[bt]
         do_u = press & ~lk[bt]

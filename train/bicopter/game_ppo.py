@@ -137,7 +137,11 @@ class Trainer:
         self.env_state, self.obs, self.cobs = jax.pmap(jax.vmap(game.reset_obs))(env_keys)
         # Stagger the first episodes so episode ends (and resets) are spread over every rollout.
         t0 = jax.random.randint(key, (self.n_dev, n), 0, game.EP_LEN)
-        self.env_state = self.env_state._replace(t=t0)
+        # A staggered first episode that starts after prep never records its prep-end stats; drop its spawn seals too.
+        st = self.env_state.stats
+        self.env_state = self.env_state._replace(
+            t=t0, stats=st._replace(spawn_sealed=jnp.where(t0 > game.PREP, 0.0, st.spawn_sealed))
+        )
 
         # The last pool_frac of each device's environments put a past snapshot in one role: seekers in even
         # environments, hiders in odd ones.

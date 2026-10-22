@@ -213,7 +213,7 @@ function syncCheckpointInfo() {
 const SERIES: { key: string; label: string; rgb: string; scale?: number }[] = [
   { key: "hidden", label: "hidden", rgb: CYAN },
   { key: "in_room", label: "in room", rgb: "220,230,255" },
-  { key: "sealed", label: "doors sealed", rgb: "140,255,107" },
+  { key: "sealed_gain", label: "doors sealed by hiders", rgb: "140,255,107" },
   { key: "locked_prep", label: "boxes locked", rgb: "190,140,255", scale: 0.25 },
   { key: "key_unlocks", label: "key unlocks", rgb: GOLD },
 ];
