@@ -23,7 +23,7 @@ rows = [json.loads(l) for l in (run / "metrics.jsonl").read_text().splitlines() 
 by_update = {r["update"]: r for r in rows}
 rows = [by_update[k] for k in sorted(by_update)]
 
-KEYS = ["hidden", "in_room", "sealed", "locked_prep", "unsealed", "key_unlocks", "key_denied", "grabs_h", "grabs_s", "throws", "flips"]
+KEYS = ["hidden", "in_room", "sealed", "sealed_gain", "locked_prep", "unsealed", "key_unlocks", "key_denied", "grabs_h", "grabs_s", "throws", "flips"]
 
 
 def smooth(xs, alpha=0.1):
@@ -41,7 +41,7 @@ ema = {k: smooth([r.get(k, 0.0) for r in rows]) for k in KEYS + ["r_hider"]}
 # Stage onsets: the smoothed metric first holds above its threshold for 20 consecutive updates.
 STAGES = [
     ("hide", "Hiders hide in the room", "in_room", 0.5),
-    ("seal", "Hiders seal the doors", "sealed", 0.6),
+    ("seal", "Hiders seal the doors", "sealed_gain", 0.25),
     ("lock", "Hiders lock the seal", "locked_prep", 1.0),
     ("break", "Seekers break in", "unsealed", 0.3),
     ("key", "Seekers use the key", "key_unlocks", 0.2),

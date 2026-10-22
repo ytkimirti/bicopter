@@ -291,6 +291,8 @@ def episode_summary(ep, episodes):
         "hidden": float(st.hidden) / n / (game.EP_LEN - game.PREP),
         "in_room": float(st.in_room) / n / 2,
         "sealed": float(st.sealed) / doors,
+        # Seals the hiders made, beyond the doors that started sealed.
+        "sealed_gain": (float(st.sealed) - float(st.spawn_sealed)) / doors,
         "locked_prep": float(st.locked_prep) / n,
         "key_denied": float(st.key_denied) / n,
         "unsealed": float(st.unsealed) / max(float(st.sealed), 1.0),

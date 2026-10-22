@@ -84,6 +84,7 @@ class Stats(NamedTuple):
     locks: jax.Array  # (2,) locks per team
     throws: jax.Array  # boxes released faster than 6 m/s
     flips: jax.Array  # drone-decisions spent more than 120 degrees from upright
+    spawn_sealed: jax.Array  # doors already sealed when the episode started
 
 
 class State(NamedTuple):
@@ -113,7 +114,7 @@ class State(NamedTuple):
 
 def zero_stats():
     z = jnp.float32(0.0)
-    return Stats(z, z, z, z, z, z, z, z, jnp.zeros(2), jnp.zeros(2), z, z)
+    return Stats(z, z, z, z, z, z, z, z, jnp.zeros(2), jnp.zeros(2), z, z, z)
 
 
 def aabb(cx, cy, hx, hy):
@@ -182,7 +183,8 @@ def reset(key) -> State:
     bin_ = sample_inside(k[6], room, NB, bh[0])
     bout = sample_outside(k[7], room, NB)
     bpos = jnp.where(inside[:, None], jnp.stack([bin_[:, 0], room[2] + bh[:, 1]], -1), bout)
-    # In some episodes the first block starts just inside a door, so sealing is one short push away.
+    # In some episodes the first block starts against the inside of a door, sealing it: the room is a fort from the
+    # start, which the hiders can learn to keep (and lock) and the seekers to break.
     kd = jax.random.split(jax.random.fold_in(key, 11), 2)
     side = jnp.where(doors[0] & doors[1], jax.random.bernoulli(kd[0]), doors[1]).astype(jnp.int32)
     near = jnp.where(side == 0, room[0] + bh[0, 0] + 0.05, room[1] - bh[0, 0] - 0.05)
@@ -455,9 +457,11 @@ def collide(s: State, frozen, pos0, bpos0):
     for _ in range(2):
         c, v, contact = resolve(c, h, v, invm, active, s.wc, s.wh, c_old)
         touched = touched | contact
-    # Walls get the last word: a body pushed by another body never ends the step inside a wall.
-    c, v, contact = resolve(c, h, v, invm, active, s.wc, s.wh, c_old, bodies=False)
-    touched = touched | contact
+    # Walls get the last word, so a body pushed by another body does not end the step inside a wall. Two passes, so
+    # a push out of one wall (the floor) into another (the wall above a door) is resolved too.
+    for _ in range(2):
+        c, v, contact = resolve(c, h, v, invm, active, s.wc, s.wh, c_old, bodies=False)
+        touched = touched | contact
     vmax = G["max_speed"]
     sp = jnp.linalg.norm(v, axis=-1, keepdims=True)
     v = v * jnp.minimum(1.0, vmax / jnp.maximum(sp, 1e-6))
@@ -522,7 +526,10 @@ def grab_and_lock(s: State, grab, lock, frozen):
         ul_own = free & (locked == team)
         ul_key = free & (locked == 0) & (team == 1) & has_key & (jnp.arange(NB) != KEY)
         cand = (lk | ul_own | ul_key) & (d < REACH)
-        bt = jnp.argmin(jnp.where(cand, d, 1e9))
+        # Prefer locking: pressing next to your own locked seal and a loose box locks the loose one.
+        bt = jnp.where(
+            jnp.any(lk & cand), jnp.argmin(jnp.where(lk & cand, d, 1e9)), jnp.argmin(jnp.where(cand, d, 1e9))
+        )
         press = can & (lock[i] == 1) & cand[bt]
         do_l = press & lk[bt]
         do_u = press & ~lk[bt]
@@ -747,6 +754,7 @@ def settle(s: State) -> State:
 
 def reset_obs(key):
     s = settle(reset(key))
+    s = s._replace(stats=s.stats._replace(spawn_sealed=jnp.sum(sealed_doors(s)).astype(jnp.float32)))
     obs, cobs = observe_pair(s)
     return s, obs, cobs
 
