@@ -2,6 +2,7 @@
 
 import base64
 import json
+import math
 
 import jax
 import numpy as np
@@ -19,21 +20,29 @@ CHANNELS = (
 )
 
 
-def save_checkpoint(path, ts, update_i, decisions):
+def save_checkpoint(path, ts, update_i, decisions, elapsed):
     host = jax.tree.map(lambda x: np.asarray(x[0]), ts)
     with open(path, "wb") as f:
-        f.write(serialization.to_bytes({"ts": host, "update": update_i, "decisions": decisions}))
+        f.write(serialization.to_bytes({"ts": host, "update": update_i, "decisions": decisions, "elapsed": elapsed}))
 
 
 def load_checkpoint(path, ts):
+    """Returns (ts replicated per device as numpy, which pmap shards on the next call), update, decisions, elapsed."""
     host = jax.tree.map(lambda x: np.asarray(x[0]), ts)
     with open(path, "rb") as f:
-        d = serialization.from_bytes({"ts": host, "update": 0, "decisions": 0}, f.read())
+        d = serialization.from_bytes({"ts": host, "update": 0, "decisions": 0, "elapsed": 0.0}, f.read())
     n = jax.local_device_count()
     ts = jax.tree.map(lambda x: np.stack([x] * n), d["ts"])
-    return jax.device_put_sharded([jax.tree.map(lambda x: x[i], ts) for i in range(n)], jax.local_devices()), int(
-        d["update"]
-    ), int(d["decisions"])
+    return ts, int(d["update"]), int(d["decisions"]), float(d["elapsed"])
+
+
+def finite(x):
+    """Metrics rows with NaN would make the browser's JSON.parse reject the whole replay."""
+    if isinstance(x, float):
+        return x if math.isfinite(x) else 0.0
+    if isinstance(x, list):
+        return [finite(v) for v in x]
+    return x
 
 
 def b64_i16(a):
@@ -79,7 +88,7 @@ def write_replay(path, layout, frames, rewards, stats, metrics):
         "channels": CHANNELS,
         "box_half": np.asarray(game.BOX_HALF).tolist(),
         "drone_half": np.asarray(game.DRONE_HALF).tolist(),
-        "metrics": metrics,
+        "metrics": {k: finite(v) for k, v in metrics.items()},
         "episodes": eps,
     }
     with open(path, "w") as f:

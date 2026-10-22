@@ -303,11 +303,16 @@ def sealed_doors(s: State):
     return s.doors & jnp.all(blocked, -1)
 
 
-def in_doorway(s: State):
-    """(NB,) boxes crossing a probe of an existing door."""
+def door_boxes(s: State):
+    """(2 doors, NB) boxes crossing a probe of each existing door."""
     p0, p1 = door_probes(s)
     hits = segment_hits(p0, p1, s.bpos, BOX_HALF)  # (2 doors, 2 probes, NB)
-    return jnp.any(hits & s.doors[:, None, None], (0, 1))
+    return jnp.any(hits, 1) & s.doors[:, None]
+
+
+def in_doorway(s: State):
+    """(NB,) boxes crossing a probe of an existing door."""
+    return jnp.any(door_boxes(s), 0)
 
 
 def seekers_at_doors(s: State):
@@ -532,7 +537,8 @@ def observe_all(s: State, vis, box_vis):
     agent's team cannot see; pass all-true for the critic."""
     prep = (s.t < PREP).astype(jnp.float32)
     tf = s.t / EP_LEN
-    sealed = sealed_doors(s)
+    # A team knows a door is sealed only if it can see a box in that doorway.
+    sealed = sealed_doors(s)[None, :] & jnp.any(door_boxes(s)[None] & box_vis[:, None, :], -1)  # (2 teams, 2 doors)
     clip = lambda x, lim=4.0: jnp.clip(x, -lim, lim)
 
     def one(i):
@@ -593,7 +599,7 @@ def observe_all(s: State, vis, box_vis):
             clip((jnp.array([r[0] - WALL_T / 2, door_y]) - me) * 0.2),
             clip((jnp.array([r[1] + WALL_T / 2, door_y]) - me) * 0.2),
             s.doors.astype(jnp.float32),
-            sealed.astype(jnp.float32),
+            sealed[team].astype(jnp.float32),
             in_room(s, me)[None].astype(jnp.float32),
         ]
         return jnp.concatenate(own + others + boxes + room)
@@ -601,8 +607,9 @@ def observe_all(s: State, vis, box_vis):
     return jnp.stack([one(i) for i in range(ND)])
 
 
-def observe_pair(s: State):
-    vis, box_vis = team_sees(s)
+def observe_pair(s: State, vis=None, box_vis=None):
+    if vis is None:
+        vis, box_vis = team_sees(s)
     return observe_all(s, vis, box_vis), observe_all(s, jnp.ones((2, 2), bool), jnp.ones((2, NB), bool))
 
 
@@ -669,7 +676,7 @@ def step(s: State, pilot, cont, grab, lock, record=False):
     r_h = jnp.where(seek, jnp.where(any_seen, -1.0, 1.0), 0.0)
     reward = jnp.stack([r_h, r_h, -r_h, -r_h])
 
-    vis, _ = team_sees(s)
+    vis, box_vis = team_sees(s)
     opp_pos = jnp.stack([s.pos[2:], s.pos[:2]])
     mem = jnp.where(vis[..., None], opp_pos, s.mem)
     since = jnp.minimum(jnp.where(vis, 0.0, s.since + DEC_DT), G["memory_s"])
@@ -693,7 +700,7 @@ def step(s: State, pilot, cont, grab, lock, record=False):
     seal0 = jnp.where(at_prep_end, sealed, s.seal0 & sealed)
     s = s._replace(stats=st, seal0=seal0)
 
-    obs, cobs = observe_pair(s)
+    obs, cobs = observe_pair(s, vis, box_vis)
     done = s.t >= EP_LEN
     if record:
         frames["seen"] = jnp.broadcast_to(hider_seen, (REPEAT, 2))

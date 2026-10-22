@@ -45,10 +45,10 @@ cfg = Config(
 )
 tr = Trainer(cfg, args.seed)
 if args.resume:
-    tr.ts, tr.update_i, done_decisions = load_checkpoint(args.resume, tr.ts)
+    tr.ts, tr.update_i, done_decisions, elapsed0 = load_checkpoint(args.resume, tr.ts)
     tr.pool = [tr.snapshot_params()]
 else:
-    done_decisions = 0
+    done_decisions, elapsed0 = 0, 0.0
 record = make_recorder(tr.actor, tr.pilot)
 rng = np.random.default_rng(args.seed)
 print(
@@ -70,7 +70,7 @@ while time.time() < deadline:
     done_decisions += tr.batch
     if tr.update_i % args.snapshot_every == 0:
         tr.snapshot()
-    el = time.time() - t0
+    el = elapsed0 + time.time() - t0
     row = {
         "update": tr.update_i,
         "decisions": done_decisions,
@@ -96,7 +96,7 @@ while time.time() < deadline:
         next_replay = time.time() + args.replay_every * 60
         tag = f"{done_decisions // 1_000_000:05d}M"
         params = tr.host_params()
-        save_checkpoint(os.path.join(args.out, f"ckpt_{tag}.npz"), tr.ts, tr.update_i, done_decisions)
+        save_checkpoint(os.path.join(args.out, f"ckpt_{tag}.npz"), tr.ts, tr.update_i, done_decisions, el)
         layout, frames, r, st = record(params, jax.random.PRNGKey(1000 + tr.update_i))
         write_replay(os.path.join(args.out, f"replay_{tag}.json"), layout, frames, r, st, row)
         print(f"checkpoint {tag}", flush=True)
