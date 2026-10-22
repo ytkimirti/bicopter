@@ -30,10 +30,12 @@ def load_checkpoint(path, ts):
     """Returns (ts replicated per device as numpy, which pmap shards on the next call), update, decisions, elapsed."""
     host = jax.tree.map(lambda x: np.asarray(x[0]), ts)
     with open(path, "rb") as f:
-        d = serialization.from_bytes({"ts": host, "update": 0, "decisions": 0, "elapsed": 0.0}, f.read())
+        raw = serialization.msgpack_restore(f.read())
+    restored = serialization.from_state_dict(host, raw["ts"])
     n = jax.local_device_count()
-    ts = jax.tree.map(lambda x: np.stack([x] * n), d["ts"])
-    return ts, int(d["update"]), int(d["decisions"]), float(d["elapsed"])
+    ts = jax.tree.map(lambda x: np.stack([x] * n), restored)
+    # Checkpoints from before elapsed was saved have no such key.
+    return ts, int(raw["update"]), int(raw["decisions"]), float(raw.get("elapsed", 0.0))
 
 
 def finite(x):
