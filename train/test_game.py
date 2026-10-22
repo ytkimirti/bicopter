@@ -76,8 +76,17 @@ def doorway_ram():
     assert worst_x < 0.02 and worst_y < 0.02, (worst_x, worst_y)
 
 
+def forts():
+    """About 30% of episodes start with every door of the room sealed."""
+    s, _, _ = reset(jax.random.split(jax.random.PRNGKey(5), 1024))
+    full = np.asarray(s.stats.spawn_sealed == s.doors.sum(-1))
+    print(f"forts: {full.mean():.2f} of episodes start fully sealed")
+    assert 0.25 < full.mean() < 0.45, full.mean()
+
+
 def main():
     doorway_ram()
+    forts()
     s, st, worst = run(policy="hover")
     sp = np.asarray(jnp.linalg.norm(s.vel, axis=-1))
     print(f"hover: max wall overlap {worst:.3f} m, final speed mean {sp.mean():.2f} m/s, tilt max {float(jnp.abs(s.th).max()):.2f}")

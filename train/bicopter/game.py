@@ -173,8 +173,14 @@ def sample_inside(key, room, n, half):
 def reset(key) -> State:
     k = jax.random.split(key, 10)
     wc, wh, room, doors = make_layout(k[0])
-    # A third of episodes start the hiders inside the room, so they find it before they could learn to look for it.
-    hid_in = jax.random.uniform(k[1]) < 0.3
+    # In some episodes the room starts as a fort: a block stands against the inside of every door, and the hiders
+    # usually start inside it. Keeping (and locking) it is the first thing hiders can learn, and breaking it the
+    # first thing seekers can.
+    kd = jax.random.split(jax.random.fold_in(key, 11), 2)
+    fort = jax.random.uniform(kd[1]) < 0.3
+    # Otherwise a third of episodes start the hiders inside the room, so they find it before they could learn to look
+    # for it.
+    hid_in = jax.random.uniform(k[1]) < jnp.where(fort, 0.7, 0.3)
     hp = jnp.where(hid_in, sample_inside(k[2], room, 2, DRONE_HALF), sample_outside(k[3], room, 2))
     sp = sample_outside(k[4], room, 2)
     pos = jnp.concatenate([hp, sp])
@@ -184,13 +190,12 @@ def reset(key) -> State:
     bin_ = sample_inside(k[6], room, NB, bh[0])
     bout = sample_outside(k[7], room, NB)
     bpos = jnp.where(inside[:, None], jnp.stack([bin_[:, 0], room[2] + bh[:, 1]], -1), bout)
-    # In some episodes the first block starts against the inside of a door, sealing it: the room is a fort from the
-    # start, which the hiders can learn to keep (and lock) and the seekers to break.
-    kd = jax.random.split(jax.random.fold_in(key, 11), 2)
-    side = jnp.where(doors[0] & doors[1], jax.random.bernoulli(kd[0]), doors[1]).astype(jnp.int32)
-    near = jnp.where(side == 0, room[0] + bh[0, 0] + 0.05, room[1] - bh[0, 0] - 0.05)
-    at_door = jax.random.uniform(kd[1]) < 0.3
-    bpos = bpos.at[0].set(jnp.where(at_door, jnp.stack([near, room[2] + bh[0, 1]]), bpos[0]))
+    # Fort: block 0 seals the left door if there is one, else the right; block 1 seals the right door of a two-door room.
+    y = room[2] + bh[0, 1]
+    left = jnp.stack([room[0] + bh[0, 0] + 0.05, y])
+    right = jnp.stack([room[1] - bh[0, 0] - 0.05, y])
+    bpos = bpos.at[0].set(jnp.where(fort, jnp.where(doors[0], left, right), bpos[0]))
+    bpos = bpos.at[1].set(jnp.where(fort & doors[0] & doors[1], right, bpos[1]))
     hover = SPEC["mass"] * GRAV / 2
     return State(
         pos=pos,
