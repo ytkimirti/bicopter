@@ -123,14 +123,15 @@ def key_start():
     assert bool(jnp.all((s.held[:, game.KEY] == 2) == (s.holding[:, 2] == game.KEY)))
     print(f"key start: {carry.mean():.2f} of episodes, max overlap at reset {float(overlap_depth(s)[carry].max()):.3f} m")
     assert 0.15 < carry.mean() < 0.35, carry.mean()
-    assert float(overlap_depth(s)[carry].max()) < 0.15
+    assert float(overlap_depth(s)[carry].max()) < 0.03
     # The carrier keeps the key through prep, frozen at its spawn with the key hanging under it.
     hang = jnp.array([0.0, float(game.hold_offset(game.BOX_HALF[game.KEY, 1]))])
     t, z = s, jnp.zeros((n, game.ND), jnp.int32)
     for _ in range(10):
         t, *_ = step(t, pilot, jnp.zeros((n, game.ND, game.N_CONT)), z.at[:, 2].set(1), z)
     assert bool(jnp.all(t.holding[carry, 2] == game.KEY))
-    assert float(jnp.abs(t.pos[carry, 2] - t.spawn[carry, 0]).max()) < 1e-4
+    assert float(jnp.abs(s.spawn[carry, 0] - s.pos[carry, 2]).max()) < 1e-4  # spawn is the drone, not its grown shape
+    assert float(jnp.abs(t.pos[carry, 2] - s.pos[carry, 2]).max()) < 1e-4
     assert float(jnp.abs(t.bpos[carry, game.KEY] - t.pos[carry, 2] - hang).max()) < 1e-4
     # A carrier spawned just above a platform settles clear of it, key included.
     plat = s.wc[:, 7] + jnp.array([0.0, 0.15 + 0.2])
