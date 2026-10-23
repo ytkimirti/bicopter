@@ -156,10 +156,14 @@ def key_start():
     )
     t = t._replace(bpos=jnp.where(carry[:, None, None], t.bpos.at[:, game.KEY].set(drone + jnp.array([0.0, float(game.hold_offset(game.BOX_HALF[game.KEY, 1]))])), t.bpos))
     z = jnp.zeros((n, game.ND), jnp.int32)
-    t, *_ = step(t, pilot, jnp.zeros((n, game.ND, game.N_CONT)), z, z)
-    unlocked = np.asarray(t.locked[:, 0] < 0)
+    cont = jnp.zeros((n, game.ND, game.N_CONT))
+    t1, *_ = step(t, pilot, cont, z, z)
+    unlocked = np.asarray(t1.locked[:, 0] < 0)
     print(f"key unlock: carriers {unlocked[carry].mean():.2f}, others {unlocked[~carry].mean():.2f}")
     assert unlocked[carry].all() and not unlocked[~carry].any()
+    # Pressing lock at the same time does not re-lock the opened box for the seekers.
+    t2, *_ = step(t, pilot, cont, z, z.at[:, 2].set(1))
+    assert bool(jnp.all(t2.locked[carry, 0] == -1)), np.asarray(t2.locked[carry, 0])
 
 
 def own_box_sight():

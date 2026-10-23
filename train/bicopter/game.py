@@ -553,9 +553,10 @@ def grab_and_lock(s: State, grab, lock, frozen):
         free = held < 0
         has_key = holding[i] == KEY
         opened = can & free & (locked == 0) & (team == 1) & has_key & (jnp.arange(NB) != KEY) & (d < LOCK_REACH)
-        key_unlocks = key_unlocks + jnp.sum(opened)
+        key_unlocks = key_unlocks + jnp.sum(opened & jnp.any(door_boxes(s), 0))  # the ones that count: door seals
         locked = jnp.where(opened, -1, locked)
-        lk = free & (locked < 0) & (d < LOCK_REACH)
+        # The same press must not turn a box the key just opened into a seeker lock.
+        lk = free & (locked < 0) & (d < LOCK_REACH) & ~opened
         bt = jnp.argmin(jnp.where(lk, d, 1e9))
         do_l = can & (lock[i] == 1) & lk[bt]
         locks = locks + jnp.where(do_l, jax.nn.one_hot(team, 2), 0.0)
