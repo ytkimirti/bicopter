@@ -6,7 +6,8 @@ motor commands, and presses a grab toggle and a lock button. A toggle (rather th
 random policy carry a box for a while, and a lock button that cannot undo itself leaves locks in place; exploration
 needs both to find forts. The arena is a closed box with a room on the floor whose side
 walls have doors. Blocks are taller than the doors, so only blocks already inside can seal them. Any team can lock a
-free box in place, for good: locks never undo, except that a seeker carrying the key unlocks hider locks.
+free box in place, for good: locks never undo, except that the key, carried by a seeker, opens hider locks it
+comes near.
 
 Hiders get +1 per decision while no seeker has line of sight to any hider, -1 otherwise; seekers get the opposite.
 During the prep phase seekers are frozen and blind, and nobody is rewarded.
@@ -542,25 +543,23 @@ def grab_and_lock(s: State, grab, lock, frozen):
         held = held.at[bj].set(jnp.where(do, i, held[bj]))
         holding = holding.at[i].set(jnp.where(do, bj, holding[i]))
         # Lock button: locks the nearest loose box within reach of the drone or the box it carries, not through a
-        # wall. Locks are permanent, so a stray press never undoes a fort; the one exception is a seeker carrying the
-        # key, which unlocks hider locks with it before locking anything. The reach is generous so that pressing lock
-        # by a block is something exploration actually stumbles on.
+        # wall. Locks are permanent, so a stray press never undoes a fort; the one exception is the key: a seeker
+        # carrying it opens every hider lock within reach, no button needed. The reach is generous so that both are
+        # things exploration actually stumbles on.
         dc, dh = drone_shapes(s._replace(holding=holding))
         d = gap(dc[i : i + 1], dh[i : i + 1], s.bpos, BOX_HALF)[0]
         near_pt = jnp.clip(s.pos[i], s.bpos - BOX_HALF, s.bpos + BOX_HALF)
         d = jnp.where(segment_blocked(jnp.broadcast_to(s.pos[i], (NB, 2)), near_pt, s.wc, s.wh), 1e9, d)
         free = held < 0
         has_key = holding[i] == KEY
-        lk = free & (locked < 0)
-        ul_key = free & (locked == 0) & (team == 1) & has_key & (jnp.arange(NB) != KEY)
-        cand = (lk | ul_key) & (d < LOCK_REACH)
-        bt = jnp.argmin(jnp.where(cand, d + 1e3 * jnp.where(ul_key, 0.0, 1.0), 1e9))
-        press = can & (lock[i] == 1) & cand[bt]
-        do_l = press & lk[bt]
-        do_u = press & ul_key[bt]
+        opened = can & free & (locked == 0) & (team == 1) & has_key & (jnp.arange(NB) != KEY) & (d < LOCK_REACH)
+        key_unlocks = key_unlocks + jnp.sum(opened)
+        locked = jnp.where(opened, -1, locked)
+        lk = free & (locked < 0) & (d < LOCK_REACH)
+        bt = jnp.argmin(jnp.where(lk, d, 1e9))
+        do_l = can & (lock[i] == 1) & lk[bt]
         locks = locks + jnp.where(do_l, jax.nn.one_hot(team, 2), 0.0)
-        key_unlocks = key_unlocks + do_u
-        locked = locked.at[bt].set(jnp.where(do_l, team, jnp.where(do_u, -1, locked[bt])))
+        locked = locked.at[bt].set(jnp.where(do_l, team, locked[bt]))
     bvel = jnp.where((locked >= 0)[:, None], 0.0, bvel)
     st = st._replace(grabs=grabs, locks=locks, throws=throws, key_unlocks=key_unlocks)
     return s._replace(holding=holding, held=held, locked=locked, bvel=bvel, stats=st)

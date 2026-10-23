@@ -142,7 +142,7 @@ def key_start():
     worst = float(overlap_depth(t)[kept].max())
     print(f"key start: carriers over a platform keep the key in {kept.sum() / carry.sum():.2f}, overlap {worst:.3f} m")
     assert worst < 0.03 and kept.sum() > 0.8 * carry.sum(), (worst, kept.sum(), carry.sum())
-    # After prep, the key carrier presses lock beside a hider-locked block.
+    # After prep, the key carrier comes near a hider-locked block and opens it, no button pressed.
     s = s._replace(t=jnp.full_like(s.t, game.PREP + 1))
     hx, hy = game.BOX_HALF[0]
     cx = (s.room[:, 0] + s.room[:, 1]) / 2
@@ -156,7 +156,7 @@ def key_start():
     )
     t = t._replace(bpos=jnp.where(carry[:, None, None], t.bpos.at[:, game.KEY].set(drone + jnp.array([0.0, float(game.hold_offset(game.BOX_HALF[game.KEY, 1]))])), t.bpos))
     z = jnp.zeros((n, game.ND), jnp.int32)
-    t, *_ = step(t, pilot, jnp.zeros((n, game.ND, game.N_CONT)), z, z.at[:, 2].set(1))
+    t, *_ = step(t, pilot, jnp.zeros((n, game.ND, game.N_CONT)), z, z)
     unlocked = np.asarray(t.locked[:, 0] < 0)
     print(f"key unlock: carriers {unlocked[carry].mean():.2f}, others {unlocked[~carry].mean():.2f}")
     assert unlocked[carry].all() and not unlocked[~carry].any()
