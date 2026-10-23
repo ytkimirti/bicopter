@@ -88,7 +88,7 @@ def forts():
 
 
 def lock_reach():
-    """A hider half a metre from a block can lock it, but not through the roof."""
+    """A hider half a metre from a block can lock it, but not from 0.7 m or through the roof."""
     n = 16
     s, _, _ = reset(jax.random.split(jax.random.PRNGKey(7), n))
     hx, hy = game.BOX_HALF[0]
@@ -96,12 +96,14 @@ def lock_reach():
     floor_block = jnp.stack([cx, s.room[:, 2] + hy], -1)
     under_roof = jnp.stack([cx, s.room[:, 3] - hy - 0.01], -1)
     beside = jnp.stack([cx + hx + game.DRONE_HALF[0] + 0.45, s.room[:, 2] + hy], -1)
+    too_far = jnp.stack([cx + hx + game.DRONE_HALF[0] + 0.7, s.room[:, 2] + hy], -1)
     on_roof = jnp.stack([cx, s.room[:, 3] + game.WALL_T + game.DRONE_HALF[1] + 0.05], -1)
     cont = jnp.zeros((n, game.ND, game.N_CONT))
     z = jnp.zeros((n, game.ND), jnp.int32)
     lock = z.at[:, 0].set(1)
     far = jnp.array([0.0, 4.0])  # every other drone and box well away
-    for block, drone, want in ((floor_block, beside, True), (under_roof, on_roof, False)):
+    cases = (("beside", floor_block, beside, True), ("too far", floor_block, too_far, False), ("through roof", under_roof, on_roof, False))
+    for name, block, drone, want in cases:
         t = s._replace(
             bpos=jnp.broadcast_to(far, s.bpos.shape).at[:, 0].set(block) + jnp.arange(game.NB)[:, None] * jnp.array([1.0, 0.0]),
             pos=s.pos.at[:, 0].set(drone),
@@ -109,7 +111,7 @@ def lock_reach():
         )
         t, *_ = step(t, pilot, cont, z, lock)
         got = np.asarray(t.locked[:, 0] == 0)
-        print(f"lock reach: {'beside' if want else 'through roof'} locked in {got.mean():.2f} of envs")
+        print(f"lock reach: {name} locked in {got.mean():.2f} of envs")
         assert (got == want).all(), got
 
 
