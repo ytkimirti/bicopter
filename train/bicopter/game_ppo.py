@@ -33,6 +33,9 @@ class Config:
     clip: float = 0.2
     vf_coef: float = 0.5
     ent_coef: float = 0.0  # an entropy bonus drags the rarely-pressed buttons toward 50% presses
+    # Instead each button keeps a floor on its mean entropy, so presses never die out: about 2.5% for grab, 1% for lock.
+    ent_floor: tuple = (0.12, 0.06)
+    ent_floor_coef: float = 0.1
     max_grad_norm: float = 0.5
     reward_scale: float = 0.1
     actor_hidden: Sequence[int] = (256, 256)
@@ -226,9 +229,13 @@ class Trainer:
             v = self.critic.apply(params["critic"], b.cobs)[..., 0]
             vl = 0.5 * (((v - tgt) ** 2) * vm).sum() / jnp.maximum(vm.sum(), 1.0)
             _, gl, ll = split_out(y)
-            ent = ((cat_entropy(gl) + cat_entropy(ll)) * am).sum() / na
+            eg = (cat_entropy(gl) * am).sum() / na
+            el = (cat_entropy(ll) * am).sum() / na
+            ent = eg + el
+            floor = jax.nn.relu(cfg.ent_floor[0] - eg) + jax.nn.relu(cfg.ent_floor[1] - el)
             approx_kl = (((ratio - 1) - jnp.log(ratio)) * am).sum() / na
-            return pl + cfg.vf_coef * vl - cfg.ent_coef * ent, (pl, vl, ent, approx_kl)
+            loss = pl + cfg.vf_coef * vl - cfg.ent_coef * ent + cfg.ent_floor_coef * floor
+            return loss, (pl, vl, ent, approx_kl)
 
         def epoch(carry, _):
             ts, key = carry

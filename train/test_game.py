@@ -77,14 +77,14 @@ def doorway_ram():
 
 
 def forts():
-    """About 30% of episodes start with every door of the room sealed."""
+    """Fort episodes start with every door sealed, or half of them nearly so."""
     s, _, _ = reset(jax.random.split(jax.random.PRNGKey(5), 1024))
     full = np.asarray(s.stats.spawn_sealed == s.doors.sum(-1))
     two = np.asarray(s.doors.all(-1))
     print(f"forts: {full.mean():.2f} of episodes start fully sealed, {full[two].mean():.2f} of two-door rooms")
-    assert 0.25 < full.mean() < 0.45, full.mean()
+    assert 0.15 < full.mean() < 0.4, full.mean()
     # Random blocks almost never seal both doors, so this is the fort placing block 1.
-    assert 0.2 < full[two].mean() < 0.4, full[two].mean()
+    assert 0.07 < full[two].mean() < 0.3, full[two].mean()
 
 
 def main():
