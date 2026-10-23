@@ -45,6 +45,7 @@ FLOOR = -HH
 DOOR_H = G["door_h"]
 WALL_T = G["wall_t"]
 REACH = G["reach"]
+LOCK_REACH = G["lock_reach"]
 
 N_CONT = 6  # target offset (2), target velocity (2), motor residual (2)
 N_GRAB, N_LOCK = 2, 2  # nothing / toggle grab; nothing / lock
@@ -527,16 +528,19 @@ def grab_and_lock(s: State, grab, lock, frozen):
         grabs = grabs + jnp.where(do, jax.nn.one_hot(team, 2), 0.0)
         held = held.at[bj].set(jnp.where(do, i, held[bj]))
         holding = holding.at[i].set(jnp.where(do, bj, holding[i]))
-        # Lock button: locks the nearest loose box within reach of the drone or the box it carries. Locks are
-        # permanent, so a stray press never undoes a fort; the one exception is a seeker carrying the key, which
-        # unlocks hider locks with it before locking anything.
+        # Lock button: locks the nearest loose box within reach of the drone or the box it carries, not through a
+        # wall. Locks are permanent, so a stray press never undoes a fort; the one exception is a seeker carrying the
+        # key, which unlocks hider locks with it before locking anything. The reach is generous so that pressing lock
+        # by a block is something exploration actually stumbles on.
         dc, dh = drone_shapes(s._replace(holding=holding))
         d = gap(dc[i : i + 1], dh[i : i + 1], s.bpos, BOX_HALF)[0]
+        near_pt = jnp.clip(s.pos[i], s.bpos - BOX_HALF, s.bpos + BOX_HALF)
+        d = jnp.where(segment_blocked(jnp.broadcast_to(s.pos[i], (NB, 2)), near_pt, s.wc, s.wh), 1e9, d)
         free = held < 0
         has_key = holding[i] == KEY
         lk = free & (locked < 0)
         ul_key = free & (locked == 0) & (team == 1) & has_key & (jnp.arange(NB) != KEY)
-        cand = (lk | ul_key) & (d < REACH)
+        cand = (lk | ul_key) & (d < LOCK_REACH)
         bt = jnp.argmin(jnp.where(cand, d + 1e3 * jnp.where(ul_key, 0.0, 1.0), 1e9))
         press = can & (lock[i] == 1) & cand[bt]
         do_l = press & lk[bt]
