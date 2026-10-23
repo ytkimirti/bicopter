@@ -191,12 +191,12 @@ def reset(key) -> State:
     bout = sample_outside(k[7], room, NB)
     bpos = jnp.where(inside[:, None], jnp.stack([bin_[:, 0], room[2] + bh[:, 1]], -1), bout)
     # Fort: block 0 seals the left door if there is one, else the right; block 1 seals the right door of a two-door room.
-    # Half the forts are unfinished, each block standing up to a metre inward from its door, so finishing the fort is a
-    # short push that pays off before the hiders could find a whole one by chance (a reverse curriculum).
+    # Half the forts are unfinished, each block standing up to a metre inward from its door; past about 0.45 m it no
+    # longer seals. Finishing the fort is then a short push that pays off long before the hiders could build a whole
+    # one by chance (a reverse curriculum).
     y = room[2] + bh[0, 1]
     ko = jax.random.split(jax.random.fold_in(key, 12), 2)
-    room_w = room[1] - room[0]
-    off = jnp.where(jax.random.uniform(ko[0]) < 0.5, 0.0, jax.random.uniform(ko[1], (2,)) * jnp.minimum(1.0, room_w / 2 - 1.0))
+    off = jnp.where(jax.random.uniform(ko[0]) < 0.5, 0.0, jax.random.uniform(ko[1], (2,)))
     left = jnp.stack([room[0] + bh[0, 0] + 0.05 + off[0], y])
     right = jnp.stack([room[1] - bh[0, 0] - 0.05 - off[1], y])
     bpos = bpos.at[0].set(jnp.where(fort, jnp.where(doors[0], left, right), bpos[0]))

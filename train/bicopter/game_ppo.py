@@ -235,7 +235,7 @@ class Trainer:
             floor = jax.nn.relu(cfg.ent_floor[0] - eg) + jax.nn.relu(cfg.ent_floor[1] - el)
             approx_kl = (((ratio - 1) - jnp.log(ratio)) * am).sum() / na
             loss = pl + cfg.vf_coef * vl - cfg.ent_coef * ent + cfg.ent_floor_coef * floor
-            return loss, (pl, vl, ent, approx_kl)
+            return loss, (pl, vl, ent, approx_kl, eg, el)
 
         def epoch(carry, _):
             ts, key = carry
@@ -263,6 +263,8 @@ class Trainer:
             "vloss": jax.lax.pmean(losses[2].mean(), "d"),
             "entropy": jax.lax.pmean(losses[3].mean(), "d"),
             "kl": jax.lax.pmean(losses[4].mean(), "d"),
+            "ent_grab": jax.lax.pmean(losses[5].mean(), "d"),
+            "ent_lock": jax.lax.pmean(losses[6].mean(), "d"),
             "log_std": ts.params["log_std"],
             "ep": ep,
         }

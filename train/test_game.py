@@ -82,9 +82,9 @@ def forts():
     full = np.asarray(s.stats.spawn_sealed == s.doors.sum(-1))
     two = np.asarray(s.doors.all(-1))
     print(f"forts: {full.mean():.2f} of episodes start fully sealed, {full[two].mean():.2f} of two-door rooms")
-    assert 0.15 < full.mean() < 0.4, full.mean()
+    assert 0.2 < full.mean() < 0.36, full.mean()
     # Random blocks almost never seal both doors, so this is the fort placing block 1.
-    assert 0.07 < full[two].mean() < 0.3, full[two].mean()
+    assert 0.1 < full[two].mean() < 0.25, full[two].mean()
 
 
 def main():

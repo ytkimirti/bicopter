@@ -82,6 +82,8 @@ while time.time() < deadline:
         "r_hider": float(m["r_hider"]),
         "vloss": float(m["vloss"]),
         "entropy": float(m["entropy"]),
+        "ent_grab": float(m["ent_grab"]),
+        "ent_lock": float(m["ent_lock"]),
         "kl": float(m["kl"]),
         "log_std": [round(float(x), 3) for x in m["log_std"]],
         **episode_summary(m["ep"], m["episodes"]),
