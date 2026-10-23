@@ -124,6 +124,23 @@ def key_start():
     print(f"key start: {carry.mean():.2f} of episodes, max overlap at reset {float(overlap_depth(s)[carry].max()):.3f} m")
     assert 0.15 < carry.mean() < 0.35, carry.mean()
     assert float(overlap_depth(s)[carry].max()) < 0.15
+    # The carrier keeps the key through prep, frozen at its spawn with the key hanging under it.
+    hang = jnp.array([0.0, float(game.hold_offset(game.BOX_HALF[game.KEY, 1]))])
+    t, z = s, jnp.zeros((n, game.ND), jnp.int32)
+    for _ in range(10):
+        t, *_ = step(t, pilot, jnp.zeros((n, game.ND, game.N_CONT)), z.at[:, 2].set(1), z)
+    assert bool(jnp.all(t.holding[carry, 2] == game.KEY))
+    assert float(jnp.abs(t.pos[carry, 2] - t.spawn[carry, 0]).max()) < 1e-4
+    assert float(jnp.abs(t.bpos[carry, game.KEY] - t.pos[carry, 2] - hang).max()) < 1e-4
+    # A carrier spawned just above a platform settles clear of it, key included.
+    plat = s.wc[:, 7] + jnp.array([0.0, 0.15 + 0.2])
+    t = s._replace(pos=s.pos.at[:, 2].set(plat), bpos=s.bpos.at[:, game.KEY].set(jnp.where(carry[:, None], plat + hang, s.bpos[:, game.KEY])))
+    t = jax.vmap(game.settle_all)(t)
+    kept = np.asarray(t.holding[:, 2] == game.KEY) & carry
+    assert bool(jnp.all((t.held[:, game.KEY] == 2) == (t.holding[:, 2] == game.KEY)))
+    worst = float(overlap_depth(t)[kept].max())
+    print(f"key start: carriers over a platform keep the key in {kept.sum() / carry.sum():.2f}, overlap {worst:.3f} m")
+    assert worst < 0.03 and kept.sum() > 0.8 * carry.sum(), (worst, kept.sum(), carry.sum())
     # After prep, the key carrier presses lock beside a hider-locked block.
     s = s._replace(t=jnp.full_like(s.t, game.PREP + 1))
     hx, hy = game.BOX_HALF[0]
@@ -144,8 +161,27 @@ def key_start():
     assert unlocked[carry].all() and not unlocked[~carry].any()
 
 
+def own_box_sight():
+    """A seeker sees past the box it carries, not past one its teammate carries."""
+    s, _, _ = game.reset_obs(jax.random.PRNGKey(4))
+    far = jnp.array([50.0, 50.0])
+    eye = jnp.array([0.0, 2.0])
+    hang = jnp.array([0.0, float(game.hold_offset(game.BOX_HALF[game.KEY, 1]))])
+    base = s._replace(
+        wc=s.wc + far,  # walls out of the way
+        bpos=jnp.broadcast_to(-far, s.bpos.shape).at[game.KEY].set(eye + hang),
+        pos=s.pos.at[0].set(eye - jnp.array([0.0, 1.5])).at[1].set(-far).at[2].set(eye).at[3].set(-far + 3.0),
+    )
+    for holder, want in ((2, True), (3, False)):
+        t = base._replace(holding=jnp.full((game.ND,), -1).at[holder].set(game.KEY), held=jnp.full((game.NB,), -1).at[game.KEY].set(holder))
+        got = bool(game.seen_matrix(t)[0, 0])
+        print(f"sight: key carried by drone {holder}, seeker 2 sees the hider below: {got}")
+        assert got == want
+
+
 def main():
     doorway_ram()
+    own_box_sight()
     key_start()
     lock_reach()
     forts()

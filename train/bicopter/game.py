@@ -302,6 +302,11 @@ def occluders(s: State):
     return jnp.concatenate([s.wc, s.bpos]), jnp.concatenate([s.wh, BOX_HALF])
 
 
+def carried_mask(s: State):
+    """(ND, NW + NB) occluders each drone sees past: the box it carries."""
+    return jnp.concatenate([jnp.zeros((ND, NW), bool), s.held[None, :] == jnp.arange(ND)[:, None]], -1)
+
+
 def seen_matrix(s: State):
     """(2 seekers, 2 hiders): seeker has line of sight to the hider's center or either rotor."""
     oc, oh = occluders(s)
@@ -309,7 +314,8 @@ def seen_matrix(s: State):
     pts = s.pos[:2, None, :] + jnp.array([[0.0, 0.0], [-0.2, 0.0], [0.2, 0.0]])  # (2, 3, 2)
     p0 = jnp.broadcast_to(eye[:, None, None, :], (2, 2, 3, 2))
     p1 = jnp.broadcast_to(pts[None], (2, 2, 3, 2))
-    return jnp.any(~segment_blocked(p0, p1, oc, oh), -1)
+    hits = segment_hits(p0, p1, oc, oh) & ~carried_mask(s)[2:, None, None, :]
+    return jnp.any(~jnp.any(hits, -1), -1)
 
 
 def door_probes(s: State):
@@ -576,7 +582,7 @@ def team_sees(s: State):
     p1 = jnp.broadcast_to(s.bpos[None], (ND, NB, 2))
     hits = segment_hits(p0, p1, oc, oh)  # (ND, NB, NW + NB)
     own = jnp.arange(NW + NB)[None, None, :] == NW + jnp.arange(NB)[None, :, None]
-    los = ~jnp.any(hits & ~own, -1)  # (ND, NB)
+    los = ~jnp.any(hits & ~own & ~carried_mask(s)[:, None, :], -1)  # (ND, NB)
     holder_team = jnp.where(s.held >= 0, s.held // 2, -1)
     box_vis = jnp.stack([jnp.any(los[2 * t : 2 * t + 2], 0) | (holder_team == t) for t in range(2)])
     awake = jnp.array([True, False]) | (s.t >= PREP)
@@ -762,21 +768,36 @@ def step(s: State, pilot, cont, grab, lock, record=False):
 
 def settle(s: State) -> State:
     """Push anything that spawned inside a wall or another body out of it, before anyone moves."""
-    c = jnp.concatenate([s.pos, s.bpos])
+    # A drone and the box it carries settle as one body, the drone's grown shape, as in collide.
+    dc, dh = drone_shapes(s)
+    off = dc[:, 1] - s.pos[:, 1]
+    c = jnp.concatenate([dc, s.bpos])
     c0 = c
-    h = jnp.concatenate([jnp.broadcast_to(DRONE_HALF, (ND, 2)), BOX_HALF])
+    h = jnp.concatenate([dh, BOX_HALF])
+    active = jnp.concatenate([jnp.ones(ND, bool), s.held < 0])
     v = jnp.zeros_like(c)
     for _ in range(6):
-        c, v, _ = resolve(c, h, v, jnp.ones(ND + NB), jnp.ones(ND + NB, bool), s.wc, s.wh, c0)
-    # A carried box was settled as a body of its own; hang it back under its drone.
-    pos = c[:ND]
+        c, v, _ = resolve(c, h, v, jnp.ones(ND + NB), active, s.wc, s.wh, c0)
+    # Hang carried boxes back under their drone, as collide does.
+    pos = c[:ND] - jnp.stack([jnp.zeros(ND), off], -1)
     hp = pick(s.held, pos) + jnp.stack([jnp.zeros(NB), hold_offset(BOX_HALF[:, 1])], -1)
     bpos = jnp.where((s.held >= 0)[:, None], hp, c[ND:])
-    return s._replace(pos=pos, bpos=bpos, spawn=c[2:ND])
+    return s._replace(pos=pos, bpos=bpos, spawn=pos[2:])
+
+
+def settle_all(s: State) -> State:
+    """settle, then any drone still stuck in a wall with a box (say, wedged between two platforms) lets go of it,
+    and everything settles again."""
+    s = settle(s)
+    dc, dh = drone_shapes(s)
+    _, depth, _ = mtv(dc, dh, s.wc, s.wh)
+    drop = (depth.max(-1) > 0.02) & (s.holding >= 0)
+    held = jnp.where((s.held >= 0) & pick(s.held, drop.astype(jnp.float32)[:, None])[:, 0].astype(bool), -1, s.held)
+    return settle(s._replace(holding=jnp.where(drop, -1, s.holding), held=held))
 
 
 def reset_obs(key):
-    s = settle(reset(key))
+    s = settle_all(reset(key))
     s = s._replace(stats=s.stats._replace(spawn_sealed=jnp.sum(sealed_doors(s)).astype(jnp.float32)))
     obs, cobs = observe_pair(s)
     return s, obs, cobs

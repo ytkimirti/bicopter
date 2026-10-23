@@ -391,12 +391,14 @@ function drawBoxes(m: Match, f: number, a: number) {
 
 function drawSight(m: Match, f: number, poses: Pose[]) {
   if (f < m.rep.prep_frames) return;
-  const occ = m.ep.walls.concat(m.rep.box_half.map(([hx, hy], b) => [...m.box(f, b), hx, hy]));
+  const boxes = m.rep.box_half.map(([hx, hy], b) => [...m.box(f, b), hx, hy]);
   for (let h = 0; h < 2; h++) {
     if (!m.seen(f, h)) continue;
     const hp = poses[h];
     for (let s = 2; s < 4; s++) {
       const sp = poses[s];
+      // A drone sees past the box it carries.
+      const occ = m.ep.walls.concat(boxes.filter((_, b) => m.held(f, b) !== s));
       const visible = [-0.2, 0, 0.2].some((dx) => !blocked(sp.x, sp.y, hp.x + dx, hp.y, occ));
       if (!visible) continue;
       const [ax, ay] = toScreen(view, sp.x, sp.y);
