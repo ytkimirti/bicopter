@@ -21,6 +21,8 @@ way before it overshoots. The network learned all of that, plus a few tricks nob
 - **Race.** Fly a swarm of up to 19 drones, or race the network against a hand-tuned classic PD controller.
 - **Look inside.** See where the drone plans to go next, and watch the network's neurons light up as it flies.
 - **Evolve.** Start from a random network and evolve one in Web Workers with an evolution strategy, then fly it.
+- **Hide and seek.** Watch two hider drones and two seeker drones play hide and seek, at checkpoints spread across a
+  12-hour self-play run.
 
 ![The PPO network racing a classic PD controller, seven drones each](docs/race.png)
 
@@ -44,6 +46,48 @@ controller:
 The in-browser evolution strategy reaches the PD controller's score in about 20 seconds on one core and then hovers
 around it; the app spreads it over all but one of your cores. Gradient-based PPO with domain randomization stays well
 ahead.
+
+## Hide and seek
+
+**[Watch the replays: bicopter.vercel.app/hideseek.html](https://bicopter.vercel.app/hideseek.html)**
+
+A take on [OpenAI's hide and seek](https://openai.com/index/emergent-tool-use/) with the drones. Two hiders and two
+seekers share a level with a room, one or two doorways and four boxes, one of them a key. The hiders get 6 seconds to
+prepare while the seekers are frozen, then the seekers have 10 seconds to find them. Hiders score each step no seeker
+can see them, and seekers score the opposite. A drone can pick up a box, carry it and drop it, and can lock a box near
+it so the other team can't move it. Locks are permanent: only a seeker carrying the key can open a hider lock, by
+flying the key up to it.
+
+![Both hiders sealed in the room behind a locked block, a seeker arriving with the key](docs/hideseek-locked.png)
+
+![The seeker opened the lock with the key and flew in](docs/hideseek-key.png)
+
+No behavior is scripted. One network plays both sides and learns by playing against itself and older copies of itself.
+Every decision it makes is a high-level command: where to fly, plus grab and lock buttons. The trained pilot from above
+turns those commands into motor thrust. Over a 12-hour run (634M decisions per drone, about 4M games) it learned to:
+
+1. **Hide in the room.** Within half an hour, two thirds of hiders are inside when the seekers wake up.
+2. **Seal and lock the doorway.** Hiders push a block into the doorway and lock it, so the seekers can't shove it
+   aside.
+3. **Break into unlocked forts.** Seekers learned to push open any doorway block the hiders left unlocked. Locking
+   during prep cut those break-ins from about 0.2 per game to under 0.1.
+4. **Use the key.** After about 6 hours, seekers began flying the key to locked doors and opening them. This is still
+   rare at the end of the run (about 0.07 unlocks per game), and the hiders' reward was trending back toward even
+   when the run stopped.
+
+The game settled near even: hiders stay hidden for about half of the seek phase. Some fixes along the way came from
+watching replays:
+
+- **Permanent locks.** When locks could be toggled, the agents spent all game locking and unlocking things.
+- **A minimum press rate.** The policy stopped pressing the grab and lock buttons too early to find out what they
+  did. Each role now keeps a small floor on how often it presses each button.
+- **Practice forts.** Some games start with a fort already sealed or nearly sealed, so hiders can find out that
+  finishing it pays off.
+- **An easier key.** Some games start with a seeker already holding the key, and the key opens a lock just by coming
+  close.
+
+It is trained with PPO in JAX, with an omniscient critic and a pool of past opponents, running on a 64-core
+[Upstash Box](https://upstash.com/docs/box) at about 15k decisions per second.
 
 ## How it works
 
@@ -113,6 +157,14 @@ python3 publish.py runs/main                            # copy brains into web/p
 Checkpoints are written at 1M, 3M, 10M, 30M and 100M steps, plus `brain_best.json`, ranked by a deterministic
 evaluation once domain randomization is fully on. All of them show up in the app's pilot menu, so you can watch how the
 pilot improved over training.
+
+Hide and seek:
+
+```sh
+uv run python test_game.py                                # game rules and physics
+uv run python train_game.py --hours 12 --out runs/hs      # self-play; --resume runs/hs/ckpt_*.npz continues a run
+python3 publish_game.py runs/hs                           # copy replays and curves into web/public/hideseek
+```
 
 ## License
 
