@@ -33,7 +33,8 @@ class Config:
     clip: float = 0.2
     vf_coef: float = 0.5
     ent_coef: float = 0.0  # an entropy bonus drags the rarely-pressed buttons toward 50% presses
-    # Instead each button keeps a floor on its mean entropy, so presses never die out: about 2.5% for grab, 1% for lock.
+    # Instead each button keeps a floor on its mean entropy in each role, so presses never die out: about 2.5% for
+    # grab, 1% for lock.
     ent_floor: tuple = (0.12, 0.06)
     ent_floor_coef: float = 0.1
     max_grad_norm: float = 0.5
@@ -229,13 +230,21 @@ class Trainer:
             v = self.critic.apply(params["critic"], b.cobs)[..., 0]
             vl = 0.5 * (((v - tgt) ** 2) * vm).sum() / jnp.maximum(vm.sum(), 1.0)
             _, gl, ll = split_out(y)
-            eg = (cat_entropy(gl) * am).sum() / na
-            el = (cat_entropy(ll) * am).sum() / na
+            hg, hl = cat_entropy(gl), cat_entropy(ll)
+            eg = (hg * am).sum() / na
+            el = (hl * am).sum() / na
             ent = eg + el
-            floor = jax.nn.relu(cfg.ent_floor[0] - eg) + jax.nn.relu(cfg.ent_floor[1] - el)
+            # The floor holds for each role on its own: hiders pressing a lot must not let the seekers stop pressing.
+            floor, el_s = 0.0, 0.0
+            for seeker in (False, True):
+                m = am * ((jnp.arange(ND) >= ND // 2) == seeker)
+                nm = jnp.maximum(m.sum(), 1.0)
+                er_g, er_l = (hg * m).sum() / nm, (hl * m).sum() / nm
+                floor = floor + jax.nn.relu(cfg.ent_floor[0] - er_g) + jax.nn.relu(cfg.ent_floor[1] - er_l)
+                el_s = er_l if seeker else el_s
             approx_kl = (((ratio - 1) - jnp.log(ratio)) * am).sum() / na
             loss = pl + cfg.vf_coef * vl - cfg.ent_coef * ent + cfg.ent_floor_coef * floor
-            return loss, (pl, vl, ent, approx_kl, eg, el)
+            return loss, (pl, vl, ent, approx_kl, eg, el, el_s)
 
         def epoch(carry, _):
             ts, key = carry
@@ -265,6 +274,7 @@ class Trainer:
             "kl": jax.lax.pmean(losses[4].mean(), "d"),
             "ent_grab": jax.lax.pmean(losses[5].mean(), "d"),
             "ent_lock": jax.lax.pmean(losses[6].mean(), "d"),
+            "ent_lock_seeker": jax.lax.pmean(losses[7].mean(), "d"),
             "log_std": ts.params["log_std"],
             "ep": ep,
         }
