@@ -115,8 +115,38 @@ def lock_reach():
         assert (got == want).all(), got
 
 
+def key_start():
+    """A quarter of episodes start with the first seeker carrying the key, clear of walls; it unlocks a hider lock."""
+    n = 256
+    s, _, _ = reset(jax.random.split(jax.random.PRNGKey(9), n))
+    carry = np.asarray(s.holding[:, 2] == game.KEY)
+    assert bool(jnp.all((s.held[:, game.KEY] == 2) == (s.holding[:, 2] == game.KEY)))
+    print(f"key start: {carry.mean():.2f} of episodes, max overlap at reset {float(overlap_depth(s)[carry].max()):.3f} m")
+    assert 0.15 < carry.mean() < 0.35, carry.mean()
+    assert float(overlap_depth(s)[carry].max()) < 0.15
+    # After prep, the key carrier presses lock beside a hider-locked block.
+    s = s._replace(t=jnp.full_like(s.t, game.PREP + 1))
+    hx, hy = game.BOX_HALF[0]
+    cx = (s.room[:, 0] + s.room[:, 1]) / 2
+    block = jnp.stack([cx, s.room[:, 2] + hy], -1)
+    drone = jnp.stack([cx + hx + game.DRONE_HALF[0] + 0.3, s.room[:, 2] + 1.2], -1)
+    far = jnp.array([0.0, 4.0]) + jnp.arange(game.NB)[:, None] * jnp.array([1.0, 0.0])
+    t = s._replace(
+        bpos=jnp.broadcast_to(far, s.bpos.shape).at[:, 0].set(block),
+        pos=s.pos.at[:, 2].set(drone),
+        locked=jnp.full_like(s.locked, -1).at[:, 0].set(0),
+    )
+    t = t._replace(bpos=jnp.where(carry[:, None, None], t.bpos.at[:, game.KEY].set(drone + jnp.array([0.0, float(game.hold_offset(game.BOX_HALF[game.KEY, 1]))])), t.bpos))
+    z = jnp.zeros((n, game.ND), jnp.int32)
+    t, *_ = step(t, pilot, jnp.zeros((n, game.ND, game.N_CONT)), z, z.at[:, 2].set(1))
+    unlocked = np.asarray(t.locked[:, 0] < 0)
+    print(f"key unlock: carriers {unlocked[carry].mean():.2f}, others {unlocked[~carry].mean():.2f}")
+    assert unlocked[carry].all() and not unlocked[~carry].any()
+
+
 def main():
     doorway_ram()
+    key_start()
     lock_reach()
     forts()
     s, st, worst = run(policy="hover")

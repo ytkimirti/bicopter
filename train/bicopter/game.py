@@ -202,6 +202,13 @@ def reset(key) -> State:
     right = jnp.stack([room[1] - bh[0, 0] - 0.05 - off[1], y])
     bpos = bpos.at[0].set(jnp.where(fort, jnp.where(doors[0], left, right), bpos[0]))
     bpos = bpos.at[1].set(jnp.where(fort & doors[0] & doors[1], right, bpos[1]))
+    # A quarter of episodes hand the key to the first seeker from the start, so using it on a locked fort is something
+    # seekers can find before they have learned to fetch it.
+    key_start = jax.random.uniform(jax.random.fold_in(key, 13)) < 0.25
+    carry_at = pos[ND // 2] + jnp.stack([0.0, hold_offset(BOX_HALF[KEY, 1])])
+    bpos = bpos.at[KEY].set(jnp.where(key_start, carry_at, bpos[KEY]))
+    holding = jnp.full((ND,), -1).at[ND // 2].set(jnp.where(key_start, KEY, -1))
+    held = jnp.full((NB,), -1).at[KEY].set(jnp.where(key_start, ND // 2, -1))
     hover = SPEC["mass"] * GRAV / 2
     return State(
         pos=pos,
@@ -210,11 +217,11 @@ def reset(key) -> State:
         om=jnp.zeros(ND),
         f=jnp.full((ND, 2), hover),
         prev=jnp.full((ND, 2), 2 * hover / SPEC["max_thrust"] - 1),
-        holding=jnp.full((ND,), -1),
+        holding=holding,
         bpos=bpos,
         bvel=jnp.zeros((NB, 2)),
         locked=jnp.full((NB,), -1),
-        held=jnp.full((NB,), -1),
+        held=held,
         wc=wc,
         wh=wh,
         room=room,
@@ -761,7 +768,11 @@ def settle(s: State) -> State:
     v = jnp.zeros_like(c)
     for _ in range(6):
         c, v, _ = resolve(c, h, v, jnp.ones(ND + NB), jnp.ones(ND + NB, bool), s.wc, s.wh, c0)
-    return s._replace(pos=c[:ND], bpos=c[ND:], spawn=c[2:ND])
+    # A carried box was settled as a body of its own; hang it back under its drone.
+    pos = c[:ND]
+    hp = pick(s.held, pos) + jnp.stack([jnp.zeros(NB), hold_offset(BOX_HALF[:, 1])], -1)
+    bpos = jnp.where((s.held >= 0)[:, None], hp, c[ND:])
+    return s._replace(pos=pos, bpos=bpos, spawn=c[2:ND])
 
 
 def reset_obs(key):
